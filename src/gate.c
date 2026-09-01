@@ -237,20 +237,38 @@ free_req:
 
 int
 nlif_gate_subscribe(struct nlif_gate *             gate,
-                    struct nlif_obsrv_subscriber * subscriber)
+                    struct nlif_obsrv_subscriber * subscriber,
+                    const struct upoll *           poller)
 {
 	nlif_gate_assert(gate);
 	nlif_assert(subscriber);
+	nlif_assert(poller);
 
 	if (nlif_obsrv_notifier_empty(&gate->notif)) {
+		int          fd = ynl_socket_get_fd(gate->sock);
 		unsigned int grp = RTNLGRP_LINK;
+		int          ret;
 
-		if (setsockopt(gate->sock->socket,
+		ret = upoll_register(poller, fd, EPOLLIN, &gate->work);
+		if (ret) {
+			nlif_warn("cannot register notification worker: %s",
+			          strerror(-ret));
+			return ret;
+		}
+
+		if (setsockopt(fd,
 		               SOL_NETLINK,
 		               NETLINK_ADD_MEMBERSHIP,
 		               &grp,
-		               sizeof(grp)))
-			return -errno;
+		               sizeof(grp))) {
+			ret = errno;
+			upoll_unregister(poller, fd);
+			nlif_warn("cannot join netlink multicast group: %s.",
+			          strerror(ret));
+			return -ret;
+		}
+
+		nlif_dbg("gate notification enabled.");
 	}
 
 	nlif_obsrv_subscribe(&gate->notif, subscriber);
@@ -260,65 +278,88 @@ nlif_gate_subscribe(struct nlif_gate *             gate,
 
 void
 nlif_gate_unsubscribe(struct nlif_gate *             gate,
-                      struct nlif_obsrv_subscriber * subscriber)
+                      struct nlif_obsrv_subscriber * subscriber,
+                      const struct upoll *           poller)
 {
 	nlif_gate_assert(gate);
 	nlif_assert(subscriber);
+	nlif_assert(poller);
 
 	nlif_obsrv_unsubscribe(&gate->notif, subscriber);
 
 	if (nlif_obsrv_notifier_empty(&gate->notif)) {
+		int          fd = ynl_socket_get_fd(gate->sock);
 		unsigned int grp = RTNLGRP_LINK;
 
-		setsockopt(gate->sock->socket,
+		setsockopt(fd,
 		           SOL_NETLINK,
 		           NETLINK_DROP_MEMBERSHIP,
 		           &grp,
 		           sizeof(grp));
+		upoll_unregister(poller, fd);
+
+		nlif_dbg("gate notification disabled.");
 	}
 }
 
-void
-nlif_gate_process_notif(struct nlif_gate * gate)
+static
+int
+nlif_gate_dispatch_notif(struct upoll_worker * worker,
+                         uint32_t              state __unused,
+                         const struct upoll *  poller __unused)
 {
+	nlif_assert(worker);
+	nlif_assert(state);
+	nlif_assert(!(state & EPOLLOUT));
+	nlif_assert(!(state & EPOLLRDHUP));
+	nlif_assert(!(state & EPOLLPRI));
+	nlif_assert(!(state & EPOLLHUP));
+	nlif_assert(!(state & EPOLLERR));
+	nlif_assert(state & EPOLLIN);
+	nlif_assert(poller);
+
+	struct nlif_gate *         gate = containerof(worker,
+	                                              typeof(*gate),
+	                                              work);
+	struct ynl_ntf_base_type * ntf;
+
 	nlif_gate_assert(gate);
+	nlif_assert(!nlif_obsrv_notifier_empty(&gate->notif));
 
-	if (!nlif_obsrv_notifier_empty(&gate->notif)) {
-		struct ynl_ntf_base_type * ntf;
+	/*
+	 * Retrieve notification messages from underlying socket, parse
+	 * them if known to the ynl socket family and queue them to the
+	 * notification queue.
+	 */
+	ynl_ntf_check(gate->sock);
 
-		/*
-		 * Retrieve notification messages from underlying socket, parse
-		 * them if known to the ynl socket family and queue them to the
-		 * notification queue.
-		 */
-		ynl_ntf_check(gate->sock);
+	/* Dequeue and process parsed notification messages. */
+	ntf = ynl_ntf_dequeue(gate->sock);
+	while (ntf) {
+		if (ntf->cmd == RTM_NEWLINK) {
+			struct rt_link_getlink_rsp * lnk;
+			int                          err;
 
-		/* Dequeue a parsed notification message. */
-		ntf = ynl_ntf_dequeue(gate->sock);
-		while (ntf) {
-			if (ntf->cmd == RTM_NEWLINK) {
-				struct rt_link_getlink_rsp * lnk;
-				int                          err;
-
-				lnk = &((struct rt_link_getlink_ntf *)ntf)->obj;
-				err = nlif_gate_islink_valid(lnk);
-				if (!err) {
-					/* Notify subscribers. */
-					nlif_obsrv_notify(&gate->notif, lnk);
-				}
-				else
-					nlif_warn("'%s[%u]': "
-					          "invalid link notification: "
-					          "inconsistent attributes.",
-					          lnk->ifname,
-					          lnk->_hdr.ifi_index);
+			lnk = &((struct rt_link_getlink_ntf *)ntf)->obj;
+			err = nlif_gate_islink_valid(lnk);
+			if (!err) {
+				/* Notify subscribers. */
+				nlif_obsrv_notify(&gate->notif, lnk);
 			}
-
-			ynl_ntf_free(ntf);
-
-			ntf = ynl_ntf_dequeue(gate->sock);
+			else
+				nlif_warn("'%s[%u]': "
+				          "invalid link notification: "
+				          "inconsistent attributes.",
+				          lnk->ifname,
+				          lnk->_hdr.ifi_index);
 		}
+
+		ynl_ntf_free(ntf);
+
+		ntf = ynl_ntf_dequeue(gate->sock);
 	}
+
+	return 0;
 }
 
 #endif /* defined(CONFIG_NLIF_OBSRV) */
@@ -337,6 +378,7 @@ nlif_gate_init(struct nlif_gate * gate)
 	}
 
 #if defined(CONFIG_NLIF_OBSRV)
+	gate->work.dispatch = nlif_gate_dispatch_notif;
 	nlif_obsrv_setup_notifier(&gate->notif);
 #endif /* defined(CONFIG_NLIF_OBSRV) */
 

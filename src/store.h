@@ -139,19 +139,31 @@ nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
                     struct nlif_obsrv_notifier *   notifier);
 
 static inline void
-nlif_store_enable_notif(struct nlif_store * store, struct nlif_gate * gate)
+nlif_store_enable_notif(struct nlif_store *  store,
+                        struct nlif_gate *   gate,
+                        const struct upoll * poller)
 {
 	nlif_store_assert(store);
+	nlif_assert(gate);
+	nlif_assert(poller);
 
-	nlif_gate_subscribe(gate, &store->sub);
+	nlif_gate_subscribe(gate, &store->sub, poller);
+
+	nlif_dbg("store notification subscription enabled.");
 }
 
 static inline void
-nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate)
+nlif_store_disable_notif(struct nlif_store *  store,
+                         struct nlif_gate *   gate,
+                         const struct upoll * poller)
 {
 	nlif_store_assert(store);
+	nlif_assert(gate);
+	nlif_assert(poller);
 
-	nlif_gate_unsubscribe(gate, &store->sub);
+	nlif_gate_unsubscribe(gate, &store->sub, poller);
+
+	nlif_dbg("store notification subscription disabled.");
 }
 
 #endif /* defined(CONFIG_NLIF_OBSRV) */
