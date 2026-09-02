@@ -30,7 +30,7 @@ struct nlif_obsrv_subscriber {
 static inline bool
 nlif_obsrv_subscribed(const struct nlif_obsrv_subscriber * subscriber)
 {
-	return stroll_dlist_empty(&subscriber->node);
+	return !stroll_dlist_empty(&subscriber->node);
 }
 
 extern void
