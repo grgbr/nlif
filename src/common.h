@@ -4,15 +4,21 @@
 #define _GNU_SOURCE
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <elog/elog.h>
 #include <ynl/ynl.h>
 
 #define CONFIG_NLIF_ASSERT 1
 #define CONFIG_NLIF_DEBUG 1
 #define CONFIG_NLIF_PRINT 1
 #define CONFIG_NLIF_OBSRV 1
+#define CONFIG_NLIF_LOG 1
+#define CONFIG_NLIF_STDLOG 1
+#define CONFIG_NLIFD_STDLOG_SEVERITY 3
+#define CONFIG_NLIF_SYSLOG 1
+#define CONFIG_NLIFD_SYSLOG_SEVERITY 3
+#define CONFIG_NLIFD_SYSLOG_FACILITY LOG_DAEMON
 
 #if defined(CONFIG_NLIF_ASSERT)
 
@@ -27,25 +33,25 @@
 
 #endif /* defined(CONFIG_NLIF_ASSERT) */
 
-#define nlif_log(_format, ...) \
-	fprintf(stderr, \
-	        "%s: " _format "\n", \
-	        program_invocation_short_name, \
-	        ## __VA_ARGS__)
+#if defined(CONFIG_NLIF_LOG)
+
+extern void
+nlif_log(enum elog_severity severity, const char * format, ...);
+
 
 #define nlif_err(_format, ...) \
-	nlif_log(_format, ## __VA_ARGS__)
+	nlif_log(ELOG_ERR_SEVERITY, _format, ## __VA_ARGS__)
 
 #define nlif_warn(_format, ...) \
-	nlif_log(_format, ## __VA_ARGS__)
+	nlif_log(ELOG_WARNING_SEVERITY, _format, ## __VA_ARGS__)
 
 #define nlif_info(_format, ...) \
-	nlif_log(_format, ## __VA_ARGS__)
+	nlif_log(ELOG_INFO_SEVERITY, _format, ## __VA_ARGS__)
 
 #if defined(CONFIG_NLIF_DEBUG)
 
 #define nlif_dbg(_format, ...) \
-	nlif_log(_format, ## __VA_ARGS__)
+	nlif_log(ELOG_DEBUG_SEVERITY, _format, ## __VA_ARGS__)
 
 #else  /* !defined(CONFIG_NLIF_DEBUG) */
 
@@ -53,9 +59,41 @@
 
 #endif /* defined(CONFIG_NLIF_DEBUG) */
 
+extern void
+nlif_log_init(struct elog * logger);
+
+extern void
+nlif_log_fini(void);
+
+#else  /* !defined(CONFIG_NLIF_LOG) */
+
+static inline void
+nlif_log(enum elog_severity severity __unused,
+         const char *       format __unused,
+         ...)
+{
+}
+
+#define nlif_err(_format, ...)
+#define nlif_warn(_format, ...)
+#define nlif_info(_format, ...)
+#define nlif_dbg(_format, ...)
+
+static inline void
+nlif_log_init(struct elog * logger __unused)
+{
+}
+
+static inline void
+nlif_log_fini(void)
+{
+}
+
+#endif /* defined(CONFIG_NLIF_LOG) */
+
 #define nlif_abort(_format, ...) \
 	({ \
-		nlif_log(_format, ## __VA_ARGS__); \
+		nlif_log(ELOG_CURRENT_SEVERITY, _format, ## __VA_ARGS__); \
 		abort(); \
 	 })
 

@@ -22,13 +22,13 @@ build: $(BUILDDIR)/show $(BUILDDIR)/mon $(BUILDDIR)/nlifd
 
 # TODO: make compilation dependent on CONFIG_NLIF_OBSRV and -lutils
 $(BUILDDIR)/nlifd: src/nlifd.c $(BUILDDIR)/libnlif.a
-	$(CC) -MD -o $(@) $(CFLAGS) $(<) $(LDFLAGS) -lasan -lnlif -lynl -lutils -lstroll
+	$(CC) -MD -o $(@) $(CFLAGS) $(<) $(LDFLAGS) -lasan -lnlif -lynl -lelog -lutils -lstroll
 # TODO: make compilation dependent on CONFIG_NLIF_OBSRV and -lutils
 #$(BUILDDIR)/mon: sample/mon.c $(BUILDDIR)/libnlif.a
 #	$(CC) -MD -o $(@) $(CFLAGS) $(<) $(LDFLAGS)  -lasan -lnlif -lynl -lutils -lstroll
 # TODO: make compilation dependent on CONFIG_NLIF_OBSRV and -lutils
 $(BUILDDIR)/show: sample/show.c $(BUILDDIR)/libnlif.a
-	$(CC) -MD -o $(@) $(CFLAGS) $(<) $(LDFLAGS)  -lasan -lnlif -lynl -lutils -lstroll
+	$(CC) -MD -o $(@) $(CFLAGS) $(<) $(LDFLAGS)  -lasan -lnlif -lynl -lelog -lutils -lstroll
 # TODO: make compilation of obsrv.o dependent on CONFIG_NLIF_OBSRV
 $(BUILDDIR)/libnlif.a: $(addprefix $(BUILDDIR)/,store.o iface.o gate.o link.o obsrv.o common.o)
 	$(AR) crs $(@) $(^)
