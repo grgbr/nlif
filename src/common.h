@@ -16,9 +16,9 @@
 #define CONFIG_NLIF_LOG 1
 #define CONFIG_NLIF_STDLOG 1
 #define CONFIG_NLIFD_STDLOG_SEVERITY 3
-#define CONFIG_NLIF_SYSLOG 1
-#define CONFIG_NLIFD_SYSLOG_SEVERITY 3
-#define CONFIG_NLIFD_SYSLOG_FACILITY LOG_DAEMON
+//#define CONFIG_NLIF_SYSLOG 1
+//#define CONFIG_NLIFD_SYSLOG_SEVERITY 3
+//#define CONFIG_NLIFD_SYSLOG_FACILITY LOG_DAEMON
 
 #if defined(CONFIG_NLIF_ASSERT)
 
@@ -60,10 +60,7 @@ nlif_log(enum elog_severity severity, const char * format, ...);
 #endif /* defined(CONFIG_NLIF_DEBUG) */
 
 extern void
-nlif_log_init(struct elog * logger);
-
-extern void
-nlif_log_fini(void);
+nlif_log_setup(struct elog * logger);
 
 #else  /* !defined(CONFIG_NLIF_LOG) */
 
@@ -80,12 +77,7 @@ nlif_log(enum elog_severity severity __unused,
 #define nlif_dbg(_format, ...)
 
 static inline void
-nlif_log_init(struct elog * logger __unused)
-{
-}
-
-static inline void
-nlif_log_fini(void)
+nlif_log_setup(struct elog * logger __unused)
 {
 }
 
