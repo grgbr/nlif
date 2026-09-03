@@ -82,8 +82,10 @@ nlif_link_operstate_str(unsigned char operstate)
 	case IF_OPER_UNKNOWN:
 		return "unknown";
 	default:
-		assert(0);
+		nlif_assert(0);
 	}
+
+	unreachable();
 }
 
 const char *
@@ -97,8 +99,10 @@ nlif_link_mode_str(unsigned char mode)
 	case IF_LINK_MODE_TESTING:
 		return "testing";
 	default:
-		assert(0);
+		nlif_assert(0);
 	}
+
+	unreachable();
 }
 
 const char *

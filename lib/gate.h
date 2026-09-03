@@ -6,9 +6,9 @@
 
 struct nlif_gate {
 	struct ynl_sock *          sock;
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 	struct nlif_obsrv_notifier notif;
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 };
 
 #define nlif_gate_assert(_gate) \
@@ -54,7 +54,7 @@ nlif_gate_destroy_link(struct rt_link_getlink_rsp * link)
 	rt_link_getlink_rsp_free(link);
 }
 
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 
 static inline struct nlif_gate *
 nlif_gate_from_notifier(struct nlif_obsrv_notifier * notifier)
@@ -86,7 +86,7 @@ nlif_gate_unsubscribe(struct nlif_gate *             gate,
 extern void
 nlif_gate_notify(struct nlif_gate * gate);
 
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 extern int
 nlif_gate_init(struct nlif_gate * gate);

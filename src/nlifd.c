@@ -89,7 +89,7 @@ err:
 	return ret;
 }
 
-void
+static void
 nlifd_disable_notif(struct nlifd_notif_work * worker,
                     struct nlif_store *       store,
                     const struct upoll *      poller)
@@ -229,12 +229,12 @@ nlifd_fini_sigs(const struct nlifd_sigs_work * worker,
 }
 
 struct nlifd_conf {
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 	struct elog_stdio_conf  stdlog;
-#endif /* defined(CONFIG_NLIF_STDLOG) */
-#if defined(CONFIG_NLIF_SYSLOG)
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 	struct elog_syslog_conf syslog;
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 };
 
 static struct nlifd_conf *
@@ -255,7 +255,7 @@ nlifd_free_conf(struct nlifd_conf * config)
 	        program_invocation_short_name, \
 	        ## __VA_ARGS__)
 
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 
 static int
 nlifd_parse_stdlog_level(const char *             arg,
@@ -307,9 +307,9 @@ nlifd_create_stdlog(const struct nlifd_conf * config)
 #define NLIFD_USAGE_STDLOG_OPTS \
 "\n" \
 "    --stdlog-level=SEVERITY    -- set console log verbosity level to SEVERITY\n" \
-"                                  (defaults to " STROLL_STRING(CONFIG_NLIFD_STDLOG_SEVERITY) ")"
+"                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_STDLOG_SEVERITY) ")"
 
-#else  /* !defined(CONFIG_NLIF_STDLOG) */
+#else  /* !defined(CONFIG_NLIF_DAEMON_STDLOG) */
 
 static inline struct elog *
 nlifd_create_stdlog(const struct nlifd_conf * config __unused)
@@ -319,9 +319,9 @@ nlifd_create_stdlog(const struct nlifd_conf * config __unused)
 
 #define NLIFD_USAGE_STDLOG_OPTS
 
-#endif /* defined(CONFIG_NLIF_STDLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
 
-#if defined(CONFIG_NLIF_SYSLOG)
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 
 static int
 nlifd_parse_syslog_level(const char *              arg,
@@ -392,16 +392,16 @@ nlifd_create_syslog(const struct nlifd_conf * config __unused)
 #define NLIFD_USAGE_SYSLOG_OPTS \
 "\n" \
 "    --syslog-level=SEVERITY    -- set syslog verbosity level to SEVERITY\n" \
-"                                  (defaults to " STROLL_STRING(CONFIG_NLIFD_SYSLOG_SEVERITY) ")\n" \
+"                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY) ")\n" \
 "    --syslog-facitily=FACILITY -- log messages to syslog using FACILITY\n" \
-"                                  (defaults to " STROLL_STRING(CONFIG_NLIFD_SYSLOG_FACILITY) ")"
+"                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_SYSLOG_FACILITY) ")"
 
 #define NLIFD_USAGE_FACILITY \
 	"\n" \
 	"    FACILITY := dflt|auth|authpriv|cron|daemon|ftp|lpr|mail|news|syslog|user|\n" \
 	"                local0|local1|local2|local3|local4|local5|local6|local7"
 
-#else  /* !defined(CONFIG_NLIF_SYSLOG) */
+#else  /* !defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 static inline struct elog *
 nlifd_create_syslog(const struct nlifd_conf * config __unused)
@@ -412,9 +412,9 @@ nlifd_create_syslog(const struct nlifd_conf * config __unused)
 #define NLIFD_USAGE_SYSLOG_OPTS
 #define NLIFD_USAGE_FACILITY
 
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
-#if defined(CONFIG_NLIF_STDLOG) && defined(CONFIG_NLIF_SYSLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG) && defined(CONFIG_NLIF_DAEMON_SYSLOG)
 
 static struct elog *
 nlifd_create_multlog(const struct nlifd_conf * config)
@@ -437,7 +437,7 @@ nlifd_create_multlog(const struct nlifd_conf * config)
 	return NULL;
 }
 
-#else  /* !(defined(CONFIG_NLIF_STDLOG) && defined(CONFIG_NLIF_SYSLOG)) */
+#else  /* !(defined(CONFIG_NLIF_DAEMON_STDLOG) && defined(CONFIG_NLIF_DAEMON_SYSLOG)) */
 
 static inline struct elog *
 nlifd_create_multlog(const struct nlifd_conf * config __unused)
@@ -445,7 +445,7 @@ nlifd_create_multlog(const struct nlifd_conf * config __unused)
 	return NULL;
 }
 
-#endif /* defined(CONFIG_NLIF_STDLOG) && defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) && defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 #if defined(CONFIG_NLIF_LOG)
 
@@ -498,7 +498,7 @@ static void
 nlifd_destroy_log(struct elog * logger)
 {
 	if (logger)
-		elog_fini(nlif_logger);
+		elog_fini(logger);
 }
 
 #define NLIFD_USAGE_DEBUG_LEVEL
@@ -513,9 +513,10 @@ nlifd_destroy_log(struct elog * logger)
 
 #else  /* !defined(CONFIG_NLIF_LOG) */
 
-static void
+static struct elog *
 nlifd_create_log(const struct nlifd_conf * config __unused)
 {
+	return NULL;
 }
 
 static void
@@ -549,44 +550,44 @@ nlifd_show_usage(void)
 static int
 nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 {
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 	struct elog_parse                    stdlog_parse;
 	static const struct elog_stdio_conf  stdlog_dflt_conf = {
-		.super.severity = CONFIG_NLIFD_STDLOG_SEVERITY,
+		.super.severity = CONFIG_NLIF_DAEMON_STDLOG_SEVERITY,
 		.format         = ELOG_TAG_FMT
 	};
-#endif /* defined(CONFIG_NLIF_STDLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
 
-#if defined(CONFIG_NLIF_SYSLOG)
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 	struct elog_parse                    syslog_parse;
 	static const struct elog_syslog_conf syslog_dflt_conf = {
-		.super.severity = CONFIG_NLIFD_SYSLOG_SEVERITY,
+		.super.severity = CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY,
 		.format         = ELOG_TAG_FMT | ELOG_PID_FMT,
-		.facility       = CONFIG_NLIFD_SYSLOG_FACILITY
+		.facility       = CONFIG_NLIF_DAEMON_SYSLOG_FACILITY
 	};
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 	struct nlifd_conf * cfg;
 	int                 ret = EXIT_FAILURE;
 
 	cfg = nlifd_alloc_conf();
 
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 	elog_init_stdio_parse(&stdlog_parse, &cfg->stdlog, &stdlog_dflt_conf);
-#endif /* defined(CONFIG_NLIF_STDLOG) */
-#if defined(CONFIG_NLIF_SYSLOG)
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 	elog_init_syslog_parse(&syslog_parse, &cfg->syslog, &syslog_dflt_conf);
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 	while (true) {
 		enum {
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 			STDLOG_LVL_OPT  = 1U << 0,
-#endif /* defined(CONFIG_NLIF_STDLOG) */
-#if defined(CONFIG_NLIF_SYSLOG)
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 			SYSLOG_LVL_OPT  = 1U << 1,
 			SYSLOG_FAC_OPT  = 1U << 2,
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 			HELP_OPT        = 'h',
 			MISSING_OPT     = ':',
 			UNKNOWN_OPT     = '?'
@@ -594,13 +595,13 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 
 		int                        opt;
 		static const struct option opts[] = {
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 			{ "stdlog-level",    required_argument, NULL, STDLOG_LVL_OPT },
-#endif /* defined(CONFIG_NLIF_STDLOG) */
-#if defined(CONFIG_NLIF_SYSLOG)
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 			{ "syslog-level",    required_argument, NULL, SYSLOG_LVL_OPT },
 			{ "syslog-facility", required_argument, NULL, SYSLOG_FAC_OPT },
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 			{ "help",            no_argument,       NULL, HELP_OPT },
 			{ NULL,              0,                 NULL, -1 }
 		};
@@ -610,16 +611,16 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 			break;
 
 		switch (opt) {
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 		case STDLOG_LVL_OPT:
 			if (nlifd_parse_stdlog_level(optarg,
 			                             &stdlog_parse,
 			                             &cfg->stdlog))
 				goto out;
 			break;
-#endif /* defined(CONFIG_NLIF_STDLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
 
-#if defined(CONFIG_NLIF_SYSLOG)
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 		case SYSLOG_LVL_OPT:
 			if (nlifd_parse_syslog_level(optarg,
 			                             &syslog_parse,
@@ -633,7 +634,7 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 			                                &cfg->syslog))
 				goto out;
 			break;
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 		case HELP_OPT:
 			ret = EX_USAGE;
@@ -660,12 +661,12 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 		goto usage;
 	}
 
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 	elog_fini_parse(&stdlog_parse);
-#endif /* defined(CONFIG_NLIF_STDLOG) */
-#if defined(CONFIG_NLIF_SYSLOG)
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 	elog_fini_parse(&syslog_parse);
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 	*config = cfg;
 
@@ -683,12 +684,12 @@ out:
 #endif /* defined(CONFIG_NLIF_LOG) */
 
 #if defined(CONFIG_NLIF_DEBUG)
-#if defined(CONFIG_NLIF_STDLOG)
+#if defined(CONFIG_NLIF_DAEMON_STDLOG)
 	elog_fini_parse(&stdlog_parse);
-#endif /* defined(CONFIG_NLIF_STDLOG) */
-#if defined(CONFIG_NLIF_SYSLOG)
+#endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
+#if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 	elog_fini_parse(&syslog_parse);
-#endif /* defined(CONFIG_NLIF_SYSLOG) */
+#endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
 	nlifd_free_conf(cfg);
 #endif /* defined(CONFIG_NLIF_DEBUG) */

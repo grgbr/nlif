@@ -485,7 +485,7 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate __unused,
 			return 0;
 		}
 
-		nlif_assert(aliasb);
+		nlif_assert(altb);
 	}
 
 	nlif_iface_create_bylink(link, &iface);
@@ -551,7 +551,7 @@ nlif_store_clear(struct nlif_store * store)
 	nlif_dbg("store cleared.");
 }
 
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 
 static inline struct nlif_store *
 nlif_store_from_subscriber(struct nlif_obsrv_subscriber * subscriber)
@@ -622,7 +622,7 @@ nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate)
 	nlif_dbg("store notification disabled.");
 }
 
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 void
 nlif_store_init(struct nlif_store * store)
@@ -630,9 +630,9 @@ nlif_store_init(struct nlif_store * store)
 	nlif_assert(store);
 
 	nlif_store_reinit(store);
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 	nlif_obsrv_setup_subscriber(&store->sub, nlif_store_on_event);
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	nlif_dbg("store opened.");
 }
@@ -641,9 +641,9 @@ void
 nlif_store_fini(struct nlif_store * store)
 {
 	nlif_store_assert(store);
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 	nlif_assert(!nlif_obsrv_subscribed(&store->sub));
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	nlif_store_release(store);
 

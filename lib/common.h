@@ -1,24 +1,16 @@
 #ifndef _NLIF_COMMON_H
 #define _NLIF_COMMON_H
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif /* _GNU_SOURCE */
 
+#include "config.h"
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 #include <elog/elog.h>
 #include <ynl/ynl.h>
-
-#define CONFIG_NLIF_ASSERT 1
-#define CONFIG_NLIF_DEBUG 1
-#define CONFIG_NLIF_PRINT 1
-#define CONFIG_NLIF_OBSRV 1
-#define CONFIG_NLIF_LOG 1
-#define CONFIG_NLIF_STDLOG 1
-#define CONFIG_NLIFD_STDLOG_SEVERITY 3
-//#define CONFIG_NLIF_SYSLOG 1
-//#define CONFIG_NLIFD_SYSLOG_SEVERITY 3
-//#define CONFIG_NLIFD_SYSLOG_FACILITY LOG_DAEMON
 
 #if defined(CONFIG_NLIF_ASSERT)
 

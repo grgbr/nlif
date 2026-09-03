@@ -18,9 +18,9 @@ struct nlif_store {
 	struct stroll_hlist          altnameh[1U << NLIF_STORE_NAMEH_BITS];
 	struct stroll_dlist_node     ifaces;
 	unsigned int                 count;
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 	struct nlif_obsrv_subscriber sub;
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 };
 
 #define _NLIF_STORE_INIT(_store) \
@@ -32,7 +32,7 @@ struct nlif_store {
 		.count    = 0
 
 
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 
 #define NLIF_STORE_INIT(_store) \
 	{ \
@@ -41,14 +41,14 @@ struct nlif_store {
 		                                   nlif_store_on_event) \
 	}
 
-#else  /* !defined(CONFIG_NLIF_OBSRV) */
+#else  /* !defined(CONFIG_NLIF_NOTIF) */
 
 #define NLIF_STORE_INIT(_store) \
 	{ \
 		_NLIF_STORE_INIT(_store) \
 	}
 
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 #define nlif_store_assert(_store) \
 	nlif_assert(_store); \
@@ -131,7 +131,7 @@ nlif_store_reload(struct nlif_store * store, const struct nlif_gate * gate)
 	return nlif_store_load(store, gate);
 }
 
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 
 extern void
 nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
@@ -144,7 +144,7 @@ nlif_store_enable_notif(struct nlif_store * store, struct nlif_gate * gate);
 extern void
 nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate);
 
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 extern void
 nlif_store_init(struct nlif_store * store);
