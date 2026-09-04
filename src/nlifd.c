@@ -174,6 +174,18 @@ nlifd_init_sigs(struct nlifd_sigs_work * worker,
 	int          ret;
 	const char * msg __unused;
 
+	/* REVIEW ME !!
+	 * Do we need to ignore the following signals as performed by
+	 * sysrepo-plugind ??
+	 *
+	 * - SIGPIPE
+	 * - SIGTSTP
+	 * - SIGTTIN
+	 * - SIGTTOU
+	 *
+	 * Setup current working directory ??
+	 */
+
 	usig_addset(&msk, SIGHUP);
 	usig_addset(&msk, SIGINT);
 	usig_addset(&msk, SIGQUIT);
