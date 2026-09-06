@@ -75,7 +75,7 @@ nlifd_enable_notif(struct nlifd_notif_work * worker,
 		goto disable;
 	}
 
-	nlif_dbg("notification worker enabled.");
+	nlif_debug("notification worker enabled.");
 
 	return 0;
 
@@ -103,7 +103,7 @@ nlifd_disable_notif(struct nlifd_notif_work * worker,
 	upoll_unregister(poller, nlif_gate_fd(gate));
 	nlif_store_disable_notif(store, gate);
 
-	nlif_dbg("notification worker disabled.");
+	nlif_debug("notification worker disabled.");
 }
 
 struct nlifd_sigs_work {
@@ -133,6 +133,7 @@ nlifd_dispatch_sigs(struct upoll_worker * worker,
 
 	wk = containerof(worker, struct nlifd_sigs_work, base);
 	nlif_assert(wk);
+	nlif_assert(wk->fd > 0);
 
 	ret = usig_read_fd(wk->fd, &info, 1);
 	nlif_assert(ret);
@@ -146,8 +147,8 @@ nlifd_dispatch_sigs(struct upoll_worker * worker,
 	case SIGQUIT:
 	case SIGTERM:
 		/* Tell caller we were requested to terminate. */
-		nlif_dbg("interrupted by signal '%s'.",
-		         strsignal((int)info.ssi_signo));
+		nlif_debug("interrupted by signal '%s'.",
+		           strsignal((int)info.ssi_signo));
 		return -ESHUTDOWN;
 
 	case SIGUSR1:
@@ -195,7 +196,7 @@ nlifd_init_sigs(struct nlifd_sigs_work * worker,
 
 	ret = usig_open_fd(&msk, SFD_NONBLOCK | SFD_CLOEXEC);
 	if (ret < 0) {
-		msg = "cannot to open worker";
+		msg = "cannot open signal file";
 		goto err;
 	}
 
@@ -214,7 +215,7 @@ nlifd_init_sigs(struct nlifd_sigs_work * worker,
 	usig_delset(&blk, SIGTTOU);
 	usig_procmask(SIG_SETMASK, &blk, NULL);
 
-	nlif_dbg("signal handlers registered.");
+	nlif_debug("signal handlers registered.");
 
 	return 0;
 
@@ -237,7 +238,7 @@ nlifd_fini_sigs(const struct nlifd_sigs_work * worker,
 	upoll_unregister(poller, worker->fd);
 	usig_close_fd(worker->fd);
 
-	nlif_dbg("signal handlers unregistered.");
+	nlif_debug("signal handlers unregistered.");
 }
 
 struct nlifd_conf {

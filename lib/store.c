@@ -512,7 +512,7 @@ nlif_store_load(struct nlif_store * store, const struct nlif_gate * gate)
 	if (ret)
 		return ret;
 
-	nlif_dbg("store loaded with %u interfaces.", store->count);
+	nlif_debug("store loaded with %u interfaces.", store->count);
 
 	return 0;
 }
@@ -548,7 +548,7 @@ nlif_store_clear(struct nlif_store * store)
 	nlif_store_release(store);
 	nlif_store_reinit(store);
 
-	nlif_dbg("store cleared.");
+	nlif_debug("store cleared.");
 }
 
 #if defined(CONFIG_NLIF_NOTIF)
@@ -603,7 +603,7 @@ nlif_store_enable_notif(struct nlif_store * store, struct nlif_gate * gate)
 
 	err = nlif_gate_subscribe(gate, &store->sub);
 	if (!err) {
-		nlif_dbg("store notification enabled.");
+		nlif_debug("store notification enabled.");
 		return 0;
 	}
 
@@ -619,7 +619,7 @@ nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate)
 
 	nlif_gate_unsubscribe(gate, &store->sub);
 
-	nlif_dbg("store notification disabled.");
+	nlif_debug("store notification disabled.");
 }
 
 #endif /* defined(CONFIG_NLIF_NOTIF) */
@@ -634,7 +634,7 @@ nlif_store_init(struct nlif_store * store)
 	nlif_obsrv_setup_subscriber(&store->sub, nlif_store_on_event);
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 
-	nlif_dbg("store opened.");
+	nlif_debug("store opened.");
 }
 
 void
@@ -647,5 +647,5 @@ nlif_store_fini(struct nlif_store * store)
 
 	nlif_store_release(store);
 
-	nlif_dbg("store closed.");
+	nlif_debug("store closed.");
 }
