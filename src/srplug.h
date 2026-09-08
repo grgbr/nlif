@@ -2,12 +2,12 @@
 #define _SRPLUG_H
 
 #define CONFIG_SRPLUG_ASSERT 1
-#define CONFIG_SRPLUG_THREAD 1
-#define CONFIG_SRPLUG_PROCESS 1
+#define CONFIG_SRPLUG_DAEMON 1
 #define CONFIG_SRPLUG_LOG 1
 #define CONFIG_SRPLUG_DEBUG 1
 
 #include <utils/poll.h>
+#include <sysrepo.h>
 
 #if defined(CONFIG_SRPLUG_ASSERT)
 
@@ -22,40 +22,93 @@
 
 #endif /* defined(CONFIG_SRPLUG_ASSERT) */
 
-#if defined(CONFIG_SRPLUG_PROCESS)
+#if defined(CONFIG_SRPLUG_DAEMON)
+
+struct srplug_subs_work {
+	struct upoll_worker     base;
+	sr_subscription_ctx_t * ctx;
+	struct timespec         tmout;
+};
 
 struct srplug_sigs_work {
 	struct upoll_worker base;
 	int                 fd;
 };
 
-struct srplug_process {
+struct srplug_daemon {
+        sr_session_ctx_t *      sess;
 	struct upoll            poll;
+	struct srplug_subs_work subs;
+	unsigned int            sub_cnt;
 	struct srplug_sigs_work sigs;
 };
 
-#define srplug_process_assert(_process) \
-	srplug_assert(_process)
+#define srplug_daemon_assert(_daemon) \
+	srplug_assert(_daemon); \
+	srplug_assert((_daemon)->sess)
 
 static inline const struct upoll *
-srplug_process_poller(const struct srplug_process * process)
+srplug_daemon_poller(const struct srplug_daemon * daemon)
 {
-	srplug_process_assert(thread);
+	srplug_daemon_assert(daemon);
 
-	return (const struct upoll *)&process->poll;
+	return (const struct upoll *)&daemon->poll;
 }
 
-extern int
-srplug_process_poll(const struct srplug_process * process);
+struct srplug_change_sub {
+	const char *          module;
+	const char *          xpath;
+	sr_module_change_cb * on_change;
+	void *                data;
+	uint32_t              priority;
+	uint32_t              options;
+};
 
 extern int
-srplug_process_init(struct srplug_process * process, unsigned int poll_nr);
+srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
+                               const struct srplug_change_sub * subscription);
+
+struct srplug_oper_sub {
+	const char *           module;
+	const char *           xpath;
+	sr_oper_get_items_cb * on_get;
+	void *                 data;
+	uint32_t               options;
+};
+
+extern int
+srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
+                             const struct srplug_oper_sub * subscription);
+
+struct srplug_rpc_sub {
+	const char * xpath;
+	sr_rpc_cb *  on_rpc;
+	void *       data;
+	uint32_t     priority;
+	uint32_t     options;
+};
+
+extern int
+srplug_daemon_rpc_subscribe(struct srplug_daemon *        daemon,
+                            const struct srplug_rpc_sub * subscription);
+
+extern int
+srplug_daemon_poll(const struct srplug_daemon * daemon);
+
+extern int
+srplug_daemon_init(struct srplug_daemon * daemon, unsigned int poll_nr);
 
 extern void
-srplug_process_fini(struct srplug_process * process);
+srplug_daemon_fini(struct srplug_daemon * daemon);
 
-#endif /* defined(CONFIG_SRPLUG_PROCESS) */
+struct elog;
 
+extern void
+srplug_setup(struct elog * logger);
+
+#endif /* defined(CONFIG_SRPLUG_DAEMON) */
+
+#if 0
 #if defined(CONFIG_SRPLUG_THREAD)
 
 #include <utils/thread.h>
@@ -112,5 +165,6 @@ extern void
 srplug_setup(const char * name);
 
 #endif /* defined(CONFIG_SRPLUG_THREAD) */
+#endif
 
 #endif /* _SRPLUG_H */

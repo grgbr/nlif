@@ -26,6 +26,12 @@ common-cflags       := $(filter-out -DNDEBUG,$(common-cflags))
 common-ldflags      := $(filter-out -DNDEBUG,$(common-ldflags))
 endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
 
+arlibs              := libsrplug.a
+libsrplug.a-objs    := static/srplug.o
+libsrplug.a-cflags  := $(common-cflags)
+libsrplug.a-pkgconf := libelog libutils
+
+
 bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
 nlifd-objs          := nlifd.o
 nlifd-lots          := ../lib/builtin.a
