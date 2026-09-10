@@ -29,16 +29,25 @@ endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
 arlibs              := libsrplug.a
 libsrplug.a-objs    := static/srplug.o
 libsrplug.a-cflags  := $(common-cflags)
-libsrplug.a-pkgconf := libelog libutils
-
+libsrplug.a-pkgconf := libelog libetux_timer_list libstroll
 
 bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
-nlifd-objs          := nlifd.o
+nlifd-objs          := nlifd.o repo.o
 nlifd-lots          := ../lib/builtin.a
 nlifd-cflags        := $(common-cflags)
-nlifd-ldflags       := $(common-ldflags) -lynl
+nlifd-ldflags       := $(common-ldflags) -lsrplug -lsysrepo -lynl
 nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-nlifd-pkgconf       += libutils libstroll
+nlifd-pkgconf       += $(libsrplug.a-pkgconf)
 nlifd-path          := $(SBINDIR)/nlifd
+
+
+#bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
+#nlifd-objs          := nlifd.o
+#nlifd-lots          := ../lib/builtin.a
+#nlifd-cflags        := $(common-cflags)
+#nlifd-ldflags       := $(common-ldflags) -lynl
+#nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
+#nlifd-pkgconf       += libutils libstroll
+#nlifd-path          := $(SBINDIR)/nlifd
 
 # ex: filetype=make :

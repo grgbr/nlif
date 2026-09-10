@@ -7,6 +7,7 @@
 #define CONFIG_SRPLUG_DEBUG 1
 
 #include <utils/poll.h>
+#include <utils/timer.h>
 #include <sysrepo.h>
 
 #if defined(CONFIG_SRPLUG_ASSERT)
@@ -27,7 +28,7 @@
 struct srplug_subs_work {
 	struct upoll_worker     base;
 	sr_subscription_ctx_t * ctx;
-	struct timespec         tmout;
+	struct etux_timer       tmr;
 };
 
 struct srplug_sigs_work {
@@ -56,12 +57,12 @@ srplug_daemon_poller(const struct srplug_daemon * daemon)
 }
 
 struct srplug_change_sub {
-	const char *          module;
-	const char *          xpath;
-	sr_module_change_cb * on_change;
-	void *                data;
-	uint32_t              priority;
-	uint32_t              options;
+	const char *        module;
+	const char *        xpath;
+	sr_module_change_cb on_change;
+	void *              data;
+	uint32_t            priority;
+	uint32_t            options;
 };
 
 extern int
@@ -69,11 +70,11 @@ srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
                                const struct srplug_change_sub * subscription);
 
 struct srplug_oper_sub {
-	const char *           module;
-	const char *           xpath;
-	sr_oper_get_items_cb * on_get;
-	void *                 data;
-	uint32_t               options;
+	const char *         module;
+	const char *         xpath;
+	sr_oper_get_items_cb on_get;
+	void *               data;
+	uint32_t             options;
 };
 
 extern int
@@ -82,7 +83,7 @@ srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
 
 struct srplug_rpc_sub {
 	const char * xpath;
-	sr_rpc_cb *  on_rpc;
+	sr_rpc_cb    on_rpc;
 	void *       data;
 	uint32_t     priority;
 	uint32_t     options;
@@ -96,10 +97,10 @@ extern int
 srplug_daemon_poll(const struct srplug_daemon * daemon);
 
 extern int
-srplug_daemon_init(struct srplug_daemon * daemon, unsigned int poll_nr);
+srplug_daemon_open(struct srplug_daemon * daemon, unsigned int poll_nr);
 
 extern void
-srplug_daemon_fini(struct srplug_daemon * daemon);
+srplug_daemon_close(struct srplug_daemon * daemon);
 
 struct elog;
 

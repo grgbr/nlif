@@ -90,15 +90,119 @@ config NLIF_DAEMON_SYSLOG_SEVERITY
 	  this won't be sent to syslog(3) logger.
 	  See syslog(3) levels for more informations about available severities.
 
-config NLIF_DAEMON_SYSLOG_FACILITY
-	int "Syslog logging default facility"
+choice
+	prompt "Syslog logging default facility"
 	depends on NLIF_DAEMON_SYSLOG
-	range 0 7
-	default 3
+	default NLIF_DAEMON_SYSLOG_FACILITY_DAEMON
 	help
 	  By default, nlifd daemon messages are logged to syslog(3) using this
 	  facility.
 	  See syslog(3) for more informations about available facilities.
+
+config NLIF_DAEMON_SYSLOG_FACILITY_USER
+	bool "user"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_MAIL
+	bool "mail"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_DAEMON
+	bool "daemon"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_AUTH
+	bool "auth"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_SYSLOG
+	bool "syslog"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LPR
+	bool "lpr"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_NEWS
+	bool "news"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_UUCP
+	bool "uucp"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_CRON
+	bool "cron"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_AUTHPRIV
+	bool "authpriv"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_FTP
+	bool "ftp"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL0
+	bool "local0"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL1
+	bool "local1"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL2
+	bool "local2"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL3
+	bool "local3"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL4
+	bool "local4"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL5
+	bool "local5"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL6
+	bool "local6"
+
+config NLIF_DAEMON_SYSLOG_FACILITY_LOCAL7
+	bool "local7"
+
+endchoice
+
+config NLIF_DAEMON_SYSLOG_FACILITY_VALUE
+	int
+	depends on NLIF_DAEMON_SYSLOG
+	default 8 if NLIF_DAEMON_SYSLOG_FACILITY_USER
+	default 16 if NLIF_DAEMON_SYSLOG_FACILITY_MAIL
+	default 24 if NLIF_DAEMON_SYSLOG_FACILITY_DAEMON
+	default 32 if NLIF_DAEMON_SYSLOG_FACILITY_AUTH
+	default 40 if NLIF_DAEMON_SYSLOG_FACILITY_SYSLOG
+	default 48  if NLIF_DAEMON_SYSLOG_FACILITY_LPR
+	default 56  if NLIF_DAEMON_SYSLOG_FACILITY_NEWS
+	default 64  if NLIF_DAEMON_SYSLOG_FACILITY_UUCP
+	default 72  if NLIF_DAEMON_SYSLOG_FACILITY_CRON
+	default 80  if NLIF_DAEMON_SYSLOG_FACILITY_AUTHPRIV
+	default 88  if NLIF_DAEMON_SYSLOG_FACILITY_FTP
+	default 128 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL0
+	default 136 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL1
+	default 144 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL2
+	default 152 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL3
+	default 160 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL4
+	default 168 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL5
+	default 176 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL6
+	default 184 if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL7
+
+config NLIF_DAEMON_SYSLOG_FACILITY_STRING
+	string
+	depends on NLIF_DAEMON_SYSLOG
+	default "user" if NLIF_DAEMON_SYSLOG_FACILITY_USER
+	default "mail" if NLIF_DAEMON_SYSLOG_FACILITY_MAIL
+	default "daemon" if NLIF_DAEMON_SYSLOG_FACILITY_DAEMON
+	default "auth" if NLIF_DAEMON_SYSLOG_FACILITY_AUTH
+	default "syslog" if NLIF_DAEMON_SYSLOG_FACILITY_SYSLOG
+	default "lpr" if NLIF_DAEMON_SYSLOG_FACILITY_LPR
+	default "news" if NLIF_DAEMON_SYSLOG_FACILITY_NEWS
+	default "uucp" if NLIF_DAEMON_SYSLOG_FACILITY_UUCP
+	default "cron" if NLIF_DAEMON_SYSLOG_FACILITY_CRON
+	default "authpriv" if NLIF_DAEMON_SYSLOG_FACILITY_AUTHPRIV
+	default "ftp" if NLIF_DAEMON_SYSLOG_FACILITY_FTP
+	default "local0" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL0
+	default "local1" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL1
+	default "local2" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL2
+	default "local3" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL3
+	default "local4" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL4
+	default "local5" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL5
+	default "local6" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL6
+	default "local7" if NLIF_DAEMON_SYSLOG_FACILITY_LOCAL7
 
 config NLIF_SAMPLE
 	bool "Sample code"
