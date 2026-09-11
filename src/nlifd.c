@@ -5,216 +5,9 @@
 #include <sysexits.h>
 #include <string.h>
 
-#if 0
-static const struct elog_stdio_conf  conf = {
-	.super.severity = ELOG_DEBUG_SEVERITY,
-	.format         = ELOG_TAG_FMT
-};
-
-static struct elog_stdio logger;
-
-static int
-on_change(sr_session_ctx_t * session,
-          uint32_t           sub_id,
-          const char *       module_name,
-          const char *       xpath,
-          sr_event_t         event,
-          uint32_t           request_id,
-          void *             private_data)
-{
-	int        rc;
-	sr_val_t * val;
-
-	(void)sub_id;
-	(void)module_name;
-	(void)xpath;
-	(void)event;
-	(void)request_id;
-	(void)private_data;
-
-	/*
-	 * Get the value from sysrepo, we do not care if the value did not
-	 * change in our case.
-	 */
-	rc = sr_get_item(session, "/oven:oven/temperature", 0, &val);
-	if (rc != SR_ERR_OK)
-		goto sr_error;
-
-	elog_debug((struct elog *)&logger,
-	           "temperature: %hhu\n",
-	           val->data.uint8_val);
-	sr_free_val(val);
-
-	rc = sr_get_item(session, "/oven:oven/turned-on", 0, &val);
-	if (rc != SR_ERR_OK)
-		goto sr_error;
-
-	elog_debug((struct elog *)&logger,
-	           "turned-on: %d\n",
-	           (int)val->data.bool_val);
-	sr_free_val(val);
-
-	return SR_ERR_OK;
-
-sr_error:
-	elog_err((struct elog *)&logger,
-	         "change callback failed: %s\n",
-	         sr_strerror(rc));
-
-	return rc;
-}
-
-static const struct srplug_change_sub chg_sub = {
-	.module    = "oven",
-	.xpath     = NULL,
-	.on_change = on_change,
-	.data      = NULL,
-	.priority  = 0,
-	.options   = SR_SUBSCR_ENABLED | SR_SUBSCR_DONE_ONLY
-};
-
-int
-main(void)
-{
-	struct srplug_daemon dmn;
-	int                  ret;
-
-	elog_init_stdio(&logger, &conf);
-	srplug_setup((struct elog *)&logger);
-
-	ret = srplug_daemon_init(&dmn, 2U);
-	if (ret) {
-		fprintf(stderr, "init failed: %s\n", strerror(-ret));
-		goto out;
-	}
-
-	ret = srplug_daemon_change_subscribe(&dmn, &chg_sub);
-	if (ret)
-		goto fini;
-
-	ret = srplug_daemon_poll(&dmn);
-	if (ret)
-		fprintf(stderr, "daemon loop failed: %s\n", strerror(-ret));
-
-fini:
-	srplug_daemon_fini(&dmn);
-out:
-	elog_fini_stdio(&logger);
-
-	return ret ? EXIT_FAILURE : EXIT_SUCCESS;
-}
-#endif
-
-#if 0
-
-#include "store.h"
-#include <utils/poll.h>
-#include <utils/signal.h>
-#include <stdlib.h>
-#include <getopt.h>
-#include <sysexits.h>
-
-struct nlifd_notif_work {
-	struct upoll_worker base;
-	struct nlif_gate *  gate;
-};
-
-#define nlifd_assert_notif_work(_work) \
-	nlif_assert(_work); \
-	nlif_assert((_work)->base.dispatch); \
-	nlif_gate_assert((_work)->gate)
-
-#define NLIFD_INIT_NOTIF_WORK(_work, _gate) \
-	{ \
-		.base.dispatch = nlifd_dispatch_notif, \
-		.gate          = _gate, \
-	}
-
-static
-int
-nlifd_dispatch_notif(struct upoll_worker * worker,
-                     uint32_t              state __unused,
-                     const struct upoll *  poller __unused)
-{
-	nlif_assert(worker);
-	nlif_assert(state);
-	nlif_assert(!(state & EPOLLOUT));
-	nlif_assert(!(state & EPOLLRDHUP));
-	nlif_assert(!(state & EPOLLPRI));
-	nlif_assert(!(state & EPOLLHUP));
-	nlif_assert(!(state & EPOLLERR));
-	nlif_assert(state & EPOLLIN);
-	nlif_assert(poller);
-
-	struct nlifd_notif_work * notif = containerof(worker,
-	                                              typeof(*notif),
-	                                              base);
-
-	nlifd_assert_notif_work(notif);
-	nlif_gate_notify(notif->gate);
-
-	return 0;
-}
-
-static int
-nlifd_enable_notif(struct nlifd_notif_work * worker,
-                   struct nlif_store *       store,
-                   const struct upoll *      poller)
-{
-	nlifd_assert_notif_work(worker);
-	nlif_store_assert(store);
-	nlif_assert(poller);
-
-	struct nlif_gate * gate = worker->gate;
-	int                ret;
-	const char *       msg __unused;
-
-	ret = nlif_store_enable_notif(store, gate);
-	if (ret) {
-		msg = "cannot enable store notification";
-		goto err;
-	}
-
-	ret = upoll_register(poller,
-	                     nlif_gate_fd(gate),
-	                     EPOLLIN,
-	                     &worker->base);
-	if (ret) {
-		msg = "cannot enable polling";
-		goto disable;
-	}
-
-	nlif_debug("notification worker enabled.");
-
-	return 0;
-
-disable:
-	nlif_store_disable_notif(store, gate);
-err:
-	nlif_err("cannot enable notification worker: %s: %s.",
-	         msg,
-	         strerror(-ret));
-
-	return ret;
-}
-
-static void
-nlifd_disable_notif(struct nlifd_notif_work * worker,
-                    struct nlif_store *       store,
-                    const struct upoll *      poller)
-{
-	nlifd_assert_notif_work(worker);
-	nlif_store_assert(store);
-	nlif_assert(poller);
-
-	struct nlif_gate * gate = worker->gate;
-
-	upoll_unregister(poller, nlif_gate_fd(gate));
-	nlif_store_disable_notif(store, gate);
-
-	nlif_debug("notification worker disabled.");
-}
-#endif
+/******************************************************************************
+ * Nlif daemon configuration helpers.
+ ******************************************************************************/
 
 struct nlifd_conf {
 #if defined(CONFIG_NLIF_DAEMON_STDLOG)
@@ -236,6 +29,10 @@ nlifd_free_conf(struct nlifd_conf * config)
 {
 	nlif_free(config);
 }
+
+/******************************************************************************
+ * Logging handling.
+ ******************************************************************************/
 
 #define nlifd_early_log(_format, ...) \
 	fprintf(stderr, \
@@ -515,6 +312,10 @@ nlifd_destroy_log(struct elog * logger __unused)
 
 #endif /* defined(CONFIG_NLIF_LOG) */
 
+/******************************************************************************
+ * Command line handling.
+ ******************************************************************************/
+
 #define NLIFD_USAGE \
 "Usage: %1$s [OPTIONS]\n" \
 "Network interface management daemon.\n" \
@@ -685,6 +486,65 @@ out:
 	return ret;
 }
 
+/******************************************************************************
+ * Nlif sysrepo specific implementation.
+ ******************************************************************************/
+
+static int
+on_change(sr_session_ctx_t * session,
+          uint32_t           sub_id __unused,
+          const char *       module __unused,
+          const char *       xpath __unused,
+          sr_event_t         event __unused,
+          uint32_t           request_id __unused,
+          void *             data __unused)
+{
+	nlif_assert(!strcmp(module, "oven"));
+	nlif_assert(!xpath);
+	nlif_assert(!data);
+
+	sr_val_t * val;
+	int        err;
+
+	/*
+	 * Get the value from sysrepo, we do not care if the value did not
+	 * change in our case.
+	 */
+	err = sr_get_item(session, "/oven:oven/temperature", 0, &val);
+	if (err != SR_ERR_OK)
+		goto sr_error;
+
+	srplug_debug("temperature: %hhu", val->data.uint8_val);
+	sr_free_val(val);
+
+	err = sr_get_item(session, "/oven:oven/turned-on", 0, &val);
+	if (err != SR_ERR_OK)
+		goto sr_error;
+
+	srplug_debug("turned-on: %d", (int)val->data.bool_val);
+	sr_free_val(val);
+
+	return SR_ERR_OK;
+
+sr_error:
+	srplug_err("change callback failed: %s", sr_strerror(err));
+
+	return err;
+}
+
+static const struct srplug_change_sub nlifd_change_sub = {
+	.module    = "oven",
+	.xpath     = NULL,
+	.on_change = on_change,
+	.data      = NULL,
+	.priority  = 0,
+	.options   = SR_SUBSCR_ENABLED | SR_SUBSCR_DONE_ONLY
+};
+
+/******************************************************************************
+ * Main entry point.
+ ******************************************************************************/
+
 int
 main(int argc, char * const argv[])
 {
@@ -710,12 +570,16 @@ main(int argc, char * const argv[])
 	if (ret)
 		goto close_dmn;
 
+	ret = srplug_daemon_change_subscribe(&dmn, &nlifd_change_sub);
+	if (ret)
+		goto close_repo;
+
 	ret = srplug_daemon_poll(&dmn);
 	if (ret == -ESHUTDOWN)
 		ret = 0;
 
+close_repo:
 	nlif_repo_close(&repo, srplug_daemon_poller(&dmn));
-
 close_dmn:
 	srplug_daemon_close(&dmn);
 fini_log:
