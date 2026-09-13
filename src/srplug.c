@@ -1,11 +1,49 @@
 #include "srplug.h"
+#include <stroll/array.h>
 #include <utils/signal.h>
+#include <sysexits.h>
+
+void *
+srplug_malloc(size_t size)
+{
+	srplug_assert(size);
+
+	void * data;
+
+	data = malloc(size);
+	if (!data)
+		abort();
+
+	return data;
+}
 
 #if defined(CONFIG_SRPLUG_DAEMON)
+
+/******************************************************************************
+ * Logging handling.
+ ******************************************************************************/
+
+#define srplug_daemon_early_log(_format, ...) \
+	fprintf(stderr, \
+	        "%s: " _format ".\n", \
+	        program_invocation_short_name, \
+	        ## __VA_ARGS__)
 
 #if defined(CONFIG_SRPLUG_LOG)
 
 static struct elog * srplug_daemon_logger;
+
+void
+srplug_daemon_log(enum elog_severity severity, const char * format, ...)
+{
+	if (srplug_daemon_logger) {
+		va_list args;
+
+		va_start(args, format);
+		elog_vlog(srplug_daemon_logger, severity, format, args);
+		va_end(args);
+	}
+}
 
 #define srplug_daemon_err(_format, ...) \
 	srplug_daemon_log(ELOG_ERR_SEVERITY, _format ".", ## __VA_ARGS__)
@@ -27,26 +65,904 @@ static struct elog * srplug_daemon_logger;
 
 #endif /* defined(CONFIG_SRPLUG_DEBUG) */
 
-void
-srplug_daemon_log(enum elog_severity severity, const char * format, ...)
-{
-	if (srplug_daemon_logger) {
-		va_list args;
+#else  /* !defined(CONFIG_SRPLUG_LOG) */
 
-		va_start(args, format);
-		elog_vlog(srplug_daemon_logger, severity, format, args);
-		va_end(args);
+#define srplug_daemon_err(_format, ...) \
+	do { } while (0)
+
+#define srplug_daemon_warn(_format, ...) \
+	do { } while (0)
+
+#define srplug_daemon_info(_format, ...) \
+	do { } while (0)
+
+#define srplug_daemon_debug(_format, ...) \
+	do { } while (0)
+
+#endif /* defined(CONFIG_SRPLUG_LOG) */
+
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+
+static int
+srplug_daemon_parse_stdlog_level(const char *             arg,
+                                 struct elog_parse *      parse,
+                                 struct elog_stdio_conf * config)
+{
+	if (arg[0] == '\0') {
+		srplug_daemon_early_log("console log level unspecified");
+		return -EINVAL;
+	}
+
+	if (!strcmp(arg, "none")) {
+		config->super.severity = -1;
+		return 0;
+	}
+
+	if (elog_parse_stdio_severity(parse, config, arg)) {
+		srplug_daemon_early_log("invalid console log level: %s",
+		                        parse->error);
+		return -EINVAL;
+	}
+
+#if !defined(CONFIG_SRPLUG_DEBUG)
+	if (config->super.severity >= ELOG_DEBUG_SEVERITY) {
+		srplug_daemon_early_log("invalid console log level: "
+		                        "invalid '%s' specifier",
+		                        arg);
+		return -EINVAL;
+	}
+#endif /* !defined(CONFIG_SRPLUG_DEBUG) */
+
+	return 0;
+}
+
+static struct elog *
+srplug_daemon_create_stdlog(const struct srplug_daemon_conf * config)
+{
+	if (config->stdlog.super.severity >= 0) {
+		struct elog * log;
+
+		log = (struct elog *)elog_create_stdio(&config->stdlog);
+		if (!log)
+			abort();
+
+		return log;
+	}
+
+	return NULL;
+}
+
+#else  /* !defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+
+static inline struct elog *
+srplug_daemon_create_stdlog(const struct srplug_daemon_conf * config __unused)
+{
+	return NULL;
+}
+
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+
+static int
+srplug_daemon_parse_syslog_level(const char *              arg,
+                                 struct elog_parse *       parse,
+                                 struct elog_syslog_conf * config)
+{
+	if (arg[0] == '\0') {
+		srplug_daemon_early_log("syslog level unspecified");
+		return -EINVAL;
+	}
+
+	if (!strcmp(arg, "none")) {
+		config->super.severity = -1;
+		return 0;
+	}
+
+	if (elog_parse_syslog_severity(parse, config, arg)) {
+		srplug_daemon_early_log("invalid syslog level: %s",
+		                        parse->error);
+		return -EINVAL;
+	}
+
+#if !defined(CONFIG_SRPLUG_DEBUG)
+	if (config->super.severity >= ELOG_DEBUG_SEVERITY) {
+		srplug_daemon_early_log("invalid syslog level: "
+		                        "invalid '%s' specifier",
+		                        arg);
+		return -EINVAL;
+	}
+#endif /* !defined(CONFIG_SRPLUG_DEBUG) */
+
+	return 0;
+}
+
+static int
+srplug_daemon_parse_syslog_facility(const char *              arg,
+                                    struct elog_parse *       parse,
+                                    struct elog_syslog_conf * config)
+{
+	if (arg[0] == '\0') {
+		srplug_daemon_early_log("syslog facility unspecified");
+		return -EINVAL;
+	}
+
+	if (elog_parse_syslog_facility(parse, config, arg)) {
+		srplug_daemon_early_log("invalid syslog facility: %s",
+		                        parse->error);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static struct elog *
+srplug_daemon_create_syslog(const struct srplug_daemon_conf * config)
+{
+	if (config->syslog.super.severity >= 0) {
+		struct elog * log;
+
+		log = (struct elog *)elog_create_syslog(&config->syslog);
+		if (!log)
+			abort();
+
+		return log;
+	}
+
+	return NULL;
+}
+
+#else  /* !defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+static inline struct elog *
+srplug_daemon_create_syslog(const struct srplug_daemon_conf * config __unused)
+{
+	return NULL;
+}
+
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG) && defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+
+static struct elog *
+srplug_daemon_create_multlog(const struct srplug_daemon_conf * config)
+{
+	if ((config->stdlog.super.severity >= 0) &&
+	    (config->syslog.super.severity >= 0)) {
+		struct elog * logger;
+
+#if defined(CONFIG_SRPLUG_DEBUG)
+		logger = (struct elog *)elog_create_multi(elog_destroy);
+#else  /* !defined(CONFIG_SRPLUG_DEBUG) */
+		logger = (struct elog *)elog_create_multi(elog_fini);
+#endif /* defined(CONFIG_SRPLUG_DEBUG) */
+		if (!logger)
+			abort();
+
+		return logger;
+	}
+
+	return NULL;
+}
+
+#else  /* !(defined(CONFIG_SRPLUG_DAEMON_STDLOG) &&
+            defined(CONFIG_SRPLUG_DAEMON_SYSLOG)) */
+
+static inline struct elog *
+srplug_daemon_create_multlog(const struct srplug_daemon_conf * config __unused)
+{
+	return NULL;
+}
+
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) &&
+          defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+#if defined(CONFIG_SRPLUG_LOG)
+
+static void
+srplug_daemon_srlog_cb(sr_log_level_t level, const char * message)
+{
+	srplug_assert(srplug_daemon_logger);
+	srplug_assert(message);
+	
+	enum elog_severity svrt;
+
+	switch (level) {
+	case SR_LL_ERR:
+		svrt = ELOG_ERR_SEVERITY;
+		break;
+	case SR_LL_WRN:
+		svrt = ELOG_WARNING_SEVERITY;
+		break;
+	case SR_LL_INF:
+		svrt = ELOG_NOTICE_SEVERITY;
+		break;
+	case SR_LL_VRB:
+		svrt = ELOG_INFO_SEVERITY;
+		break;
+	case SR_LL_DBG:
+		svrt = ELOG_DEBUG_SEVERITY;
+		break;
+	default:
+		srplug_assert(0);
+	}
+
+	srplug_daemon_log(svrt, "%s", message);
+}
+
+static void
+srplug_daemon_setup_srlog(struct elog * logger)
+{
+	srplug_assert(!srplug_daemon_logger);
+
+	srplug_daemon_logger = logger;
+
+	/*
+	 * Disable Sysrepo's syslog logic.
+	 *
+	 * Comment this as it is disabled by default.
+	 */
+	/* sr_log_syslog(NULL, SR_LL_NONE); */
+
+	/*
+	 * Also disable Sysrepo's logic that logs to standard error.
+	 *
+	 * Comment this as it is disabled by default.
+	 */
+	/* sr_log_stderr(SR_LL_NONE); */
+
+	if (logger) {
+		/*
+		 * Install our own logger to delegate Sysrepo / libyang logging
+		 * message processing to elog.
+		 */
+		sr_log_set_cb(srplug_daemon_srlog_cb);
+	}
+	else {
+		/* Disable Sysrepo / libyang logging entirely. */
+		sr_log_set_cb(NULL);
 	}
 }
 
+struct elog *
+srplug_daemon_create_log(const struct srplug_daemon_conf * config)
+{
+	struct elog * mlog = NULL;
+	struct elog * log;
+
+	elog_setup(ELOG_DFLT_TAG, ELOG_DFLT_PID);
+
+	mlog = srplug_daemon_create_multlog(config);
+
+	log = srplug_daemon_create_stdlog(config);
+	if (log) {
+		if (!mlog) {
+			mlog = log;
+			goto setup;
+		}
+		if (elog_register_multi_sublog((struct elog_multi *)mlog, log))
+			abort();
+	}
+
+	log = srplug_daemon_create_syslog(config);
+	if (log) {
+		if (!mlog) {
+			mlog = log;
+			goto setup;
+		}
+		if (elog_register_multi_sublog((struct elog_multi *)mlog, log))
+			abort();
+	}
+
+setup:
+	srplug_daemon_setup_srlog(mlog);
+
+	return mlog;
+}
+
+#if defined(CONFIG_SRPLUG_DEBUG)
+
+void
+srplug_daemon_destroy_log(struct elog * logger)
+{
+	if (logger)
+		elog_destroy(logger);
+}
+
+#else  /* !defined(CONFIG_SRPLUG_DEBUG) */
+
+void
+srplug_daemon_destroy_log(struct elog * logger)
+{
+	if (logger)
+		elog_fini(logger);
+}
+
+#endif /* defined(CONFIG_SRPLUG_DEBUG) */
+
 #else  /* !defined(CONFIG_SRPLUG_LOG) */
 
-#define srplug_daemon_err(_format, ...)
-#define srplug_daemon_warn(_format, ...)
-#define srplug_daemon_info(_format, ...)
-#define srplug_daemon_debug(_format, ...)
+struct elog *
+srplug_daemon_create_log(const struct srplug_daemon_conf * config __unused)
+{
+	/*
+	 * Disable Sysrepo's syslog logic.
+	 *
+	 * Comment this as it is disabled by default.
+	 */
+	/* sr_log_syslog(NULL, SR_LL_NONE); */
 
-#endif /* !defined(CONFIG_SRPLUG_LOG) */
+	/*
+	 * Also disable Sysrepo's logic that logs to standard error.
+	 *
+	 * Comment this as it is disabled by default.
+	 */
+	/* sr_log_stderr(SR_LL_NONE); */
+
+	/* Disable Sysrepo / libyang logging entirely. */
+	sr_log_set_cb(NULL);
+
+	return NULL;
+}
+
+#endif /* defined(CONFIG_SRPLUG_LOG) */
+
+/******************************************************************************
+ * Command line parsing.
+ ******************************************************************************/
+
+#include <argp.h>
+
+struct srplug_daemon_cmdln_ctx {
+	struct argp                        argp;
+	const struct srplug_daemon_cmdln * cmdln;
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+	struct elog_parse                  stdlog_parse;
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+	struct elog_parse                  syslog_parse;
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+	struct srplug_daemon_conf *        conf;
+};
+
+#if defined(CONFIG_SRPLUG_DEBUG)
+
+#define SRPLUG_DAEMON_SEVERITY_DEBUG_HELP "|debug"
+
+#else  /* !defined(CONFIG_SRPLUG_DEBUG) */
+
+#define SRPLUG_DAEMON_SEVERITY_DEBUG_HELP
+
+#endif /* defined(CONFIG_SRPLUG_DEBUG) */
+
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG) || defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+
+#define SRPLUG_DAEMON_SEVERITY_HELP \
+	"\n" \
+	"    SEVERITY := none|dflt|emerg|alert|crit|err|warn|notice|info" \
+	SRPLUG_DAEMON_SEVERITY_DEBUG_HELP
+
+#else  /* !(defined(CONFIG_SRPLUG_DAEMON_STDLOG) ||
+            defined(CONFIG_SRPLUG_DAEMON_SYSLOG)) */
+
+#define SRPLUG_DAEMON_SEVERITY_HELP ""
+
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) ||
+          defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+
+#define SRPLUG_DAEMON_FACILITY_HELP \
+	"\n" \
+	"    FACILITY := dflt|auth|authpriv|cron|daemon|ftp|lpr|mail|news|syslog|user|\n" \
+	"                local0|local1|local2|local3|local4|local5|local6|local7"
+
+#else  /* !defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+#define SRPLUG_DAEMON_FACILITY_HELP ""
+
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+#define SRPLUG_DAEMON_POST_HELP \
+	(SRPLUG_DAEMON_SEVERITY_HELP SRPLUG_DAEMON_FACILITY_HELP)
+
+#define SRPLUG_DAEMON_STDLOG_LEVEL_OPT    ('l')
+#define SRPLUG_DAEMON_SYSLOG_LEVEL_OPT    ('s')
+#define SRPLUG_DAEMON_SYSLOG_FACILITY_OPT ('f')
+#define SRPLUG_DAEMON_HELP_OPT            ('h')
+#define SRPLUG_DAEMON_USAGE_OPT           (SRPLUG_OPT_MAX - 1)
+
+static const struct argp_option srplug_daemon_cmdln_intern_opts[] = {
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+	{
+		.name  = "stdlog-level",
+		.key   = SRPLUG_DAEMON_STDLOG_LEVEL_OPT,
+		.arg   = "SEVERITY",
+		.flags = 0,
+		.doc   = "set console log verbosity level to SEVERITY\n"
+                         "(defaults to `" CONFIG_SRPLUG_DAEMON_STDLOG_SEVERITY_STRING "')",
+		.group = 0
+	},
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+	{
+		.name  = "syslog-level",
+		.key   = SRPLUG_DAEMON_SYSLOG_LEVEL_OPT,
+		.arg   = "SEVERITY",
+		.flags = 0,
+		.doc   = "set syslog verbosity level to SEVERITY\n"
+		         "(defaults to `" CONFIG_SRPLUG_DAEMON_SYSLOG_SEVERITY_STRING "')",
+		.group = 0
+	},
+	{
+		.name  = "syslog-facility",
+		.key   = SRPLUG_DAEMON_SYSLOG_FACILITY_OPT,
+		.arg   = "FACILITY",
+		.flags = 0,
+		.doc   = "log messages to syslog using FACILITY\n"
+		         "(defaults to `" CONFIG_SRPLUG_DAEMON_SYSLOG_FACILITY_STRING "')",
+		.group = 0
+	},
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+	{
+		.name  = "help",
+		.key   = SRPLUG_DAEMON_HELP_OPT,
+		.arg   = NULL,
+		.flags = 0,
+		.doc   = "display a full help message",
+		.group = 0
+	},
+	{
+		.name  = "usage",
+		.key   = SRPLUG_DAEMON_USAGE_OPT,
+		.arg   = NULL,
+		.flags = 0,
+		.doc   = "display a short help message",
+		.group = 0
+	},
+	{ 0, }
+};
+
+#define _srplug_daemon_cmdln_assert_opt(_opt) \
+	srplug_assert(_opt); \
+	srplug_assert((_opt)->short_name >= 0); \
+	srplug_assert((_opt)->short_name < SRPLUG_OPT_MAX); \
+	srplug_assert(!(_opt)->long_name || (_opt)->long_name[0]); \
+	srplug_assert(!(_opt)->required || (_opt)->arg_name); \
+	srplug_assert((_opt)->parse)
+
+static void
+srplug_daemon_cmdln_assert_opt(const struct srplug_daemon_cmdln_opt * option)
+{
+	_srplug_daemon_cmdln_assert_opt(option);
+
+	unsigned int o;
+
+	for (o = 0; o < stroll_array_nr(srplug_daemon_cmdln_intern_opts); o++) {
+		srplug_assert(option->short_name !=
+		              srplug_daemon_cmdln_intern_opts[o].key);
+
+		if (option->long_name && srplug_daemon_cmdln_intern_opts[o].name)
+			srplug_assert(strcmp(
+				option->long_name,
+				srplug_daemon_cmdln_intern_opts[o].name));
+	}
+}
+
+static int
+srplug_daemon_cmdln_cmp_optkeys(const void * first,
+                                const void * second,
+                                void *       data __unused)
+{
+	const struct srplug_daemon_cmdln_opt * fst = first;
+	const struct srplug_daemon_cmdln_opt * snd = second;
+
+	return snd->short_name - fst->short_name;
+}
+
+static void
+srplug_daemon_cmdln_assert_optkeys(const struct srplug_daemon_cmdln_opt * group,
+                                   unsigned int                           nr)
+{
+	srplug_assert(group);
+	srplug_assert(nr);
+
+	unsigned int o;
+
+	_srplug_daemon_cmdln_assert_opt(&group[0]);
+	for (o = 1; o < nr; o++) {
+		_srplug_daemon_cmdln_assert_opt(&group[o]);
+
+		assert(group[o].short_name != group[o - 1].short_name);
+	}
+}
+
+static void
+srplug_daemon_cmdln_assert_optnames(struct srplug_daemon_cmdln_opt * group,
+                                    unsigned int                     nr)
+{
+	assert(!nr || group);
+
+	if (nr) {
+		unsigned int o;
+
+		int
+		cmp(const void * first,
+		    const void * second,
+		    void *       data __unused)
+		{
+			const struct srplug_daemon_cmdln_opt * fst = first;
+			const struct srplug_daemon_cmdln_opt * snd = second;
+
+			if (fst->long_name && snd->long_name)
+				return strcmp(fst->long_name, snd->long_name);
+			else
+				return (int)(snd->long_name - fst->long_name);
+		}
+
+		stroll_array_quick_sort(group, nr, sizeof(group[0]), cmp, NULL);
+
+		_srplug_daemon_cmdln_assert_opt(&group[0]);
+		for (o = 1; o < nr; o++) {
+			_srplug_daemon_cmdln_assert_opt(&group[o]);
+
+			assert(strcmp(group[o].long_name,
+			              group[o - 1].long_name));
+		}
+	}
+}
+
+static error_t
+srplug_daemon_cmdln_parse_opt(int                              key,
+                              char *                           argument,
+                              struct argp_state *              state,
+                              struct srplug_daemon_cmdln_ctx * context)
+{
+	const struct srplug_daemon_cmdln * cmdln;
+	int                                ret __unused;
+
+	switch (key) {
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+	case SRPLUG_DAEMON_STDLOG_LEVEL_OPT:
+		ret = srplug_daemon_parse_stdlog_level(argument,
+		                                       &context->stdlog_parse,
+		                                       &context->conf->stdlog);
+		return (!ret) ? 0 : -ret;
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+	case SRPLUG_DAEMON_SYSLOG_LEVEL_OPT:
+		ret = srplug_daemon_parse_syslog_level(argument,
+		                                       &context->syslog_parse,
+		                                       &context->conf->syslog);
+		return (!ret) ? 0 : -ret;
+
+	case SRPLUG_DAEMON_SYSLOG_FACILITY_OPT:
+		ret = srplug_daemon_parse_syslog_facility(
+			argument,
+			&context->syslog_parse,
+			&context->conf->syslog);
+		return (!ret) ? 0 : -ret;
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+	case SRPLUG_DAEMON_HELP_OPT:
+		argp_state_help(state, state->out_stream, ARGP_HELP_STD_HELP);
+		return ESHUTDOWN;
+
+	case SRPLUG_DAEMON_USAGE_OPT:
+		argp_state_help(state, state->out_stream, ARGP_HELP_USAGE |
+		                                          ARGP_HELP_SEE |
+		                                          ARGP_HELP_EXIT_OK);
+		return ESHUTDOWN;
+
+	default:
+		break;
+	}
+
+	cmdln = context->cmdln;
+	if (cmdln->nr) {
+		srplug_assert(cmdln->opts);
+
+		const struct srplug_daemon_cmdln_opt * opt;
+
+		opt = stroll_array_bisect_search(
+			&key,
+			cmdln->opts,
+			cmdln->nr,
+			sizeof(*opt),
+			srplug_daemon_cmdln_cmp_optkeys,
+			NULL);
+		if (opt)
+			return -opt->parse(opt, argument, state, context->conf);
+	}
+
+	return ARGP_ERR_UNKNOWN;
+}
+
+static error_t
+srplug_daemon_cmdln_argp_parser(int                 key,
+                                char *              argument,
+                                struct argp_state * state)
+{
+	struct srplug_daemon_cmdln_ctx * ctx = state->input;
+
+	switch(key) {
+	case ARGP_KEY_INIT:
+		/*
+		 * This parser has just started: nothing particular to do
+		 * here...
+		 */
+		return 0;
+
+	case ARGP_KEY_ARG:
+		/*
+		 * `arg' is a non-option argument but we don't expect any.
+		 * Inform the caller that maybe another parser may handle it.
+		 */
+		return ARGP_ERR_UNKNOWN;
+
+	case ARGP_KEY_ARGS:
+		/*
+		 * Previous call to srplug_daemon_cmdln_argp_parser() with
+		 * ARGP_KEY_ARG as `key' argument returned ARGP_ERR_UNKNOWN.
+		 * Ignore this as we consumme no non-option arguments on the
+		 * command line.
+		 */
+		return ARGP_ERR_UNKNOWN;
+
+	case ARGP_KEY_NO_ARGS:
+		/*
+		 * No non-option argument seen. Called just before
+		 * ARGP_KEY_END. As we expect no non-option arguments, just do
+		 * nothing.
+		 */
+		return 0;
+
+	case ARGP_KEY_END:
+		/*
+		 * No more argument at all for this parser. No particular clean
+		 * up to do for parent parsers since we do allocate no
+		 * resources.
+		 */
+		return 0;
+
+	case ARGP_KEY_SUCCESS:
+		/*
+		 * This parser has completed successfully and there may be
+		 * arguments left.
+		 * Let other parsers (if any) handle these.
+		 */
+		return 0;
+
+	case ARGP_KEY_ERROR:
+		/*
+		 * Parsing terminated with an error (and ARGP_KEY_SUCCESS will
+		 * never be seen).
+		 * Called after parsing of a proper `key' option returned an
+		 * error.
+		 * Nothing particular to do here as an error will be returned
+		 * from argp_parse() anyway.
+		 */
+		return 0;
+
+	case ARGP_KEY_FINI:
+		/*
+		 * End of parsing logic for this parser.
+		 * As we did nothing specific at the ARGP_KEY_INIT stage, there
+		 * is nothing particular to do here.
+		 */
+		return 0;
+
+	default:
+		return srplug_daemon_cmdln_parse_opt(key, argument, state, ctx);
+	}
+}
+
+static size_t
+srplug_daemon_cmdln_optdesc_col(const struct argp_option * option,
+                                size_t                     column)
+{
+	srplug_assert(option);
+
+	size_t len;
+
+	len = 4 + 2 + strlen(option->name);
+	if (option->arg)
+		len += 1 + strlen(option->arg);
+	len += 2;
+	srplug_assert(len <= 40);
+
+	return stroll_max(len, column);
+}
+
+static char *
+srplug_daemon_cmdln_post_help(void)
+{
+	if (SRPLUG_DAEMON_POST_HELP[0]) {
+		char * str;
+		int    ret;
+
+		ret = asprintf(&str, "Where:%s", SRPLUG_DAEMON_POST_HELP);
+		if (ret > 0)
+			return str;
+
+		if (errno == ENOMEM)
+			abort();
+	}
+
+	return NULL;
+}
+
+static char *
+srplug_daemon_cmdln_help_filter(int key, const char * text, void * data)
+{
+	const struct srplug_daemon_cmdln_ctx * ctx = data;
+	const struct srplug_daemon_cmdln *     cmdln = ctx->cmdln;
+
+	switch (key) {
+	case ARGP_KEY_HELP_PRE_DOC:
+		return cmdln->brief ? strdup(cmdln->brief) : NULL;
+
+	case ARGP_KEY_HELP_POST_DOC:
+		return srplug_daemon_cmdln_post_help();
+
+	case ARGP_KEY_HELP_HEADER:
+		return NULL;
+
+	case ARGP_KEY_HELP_EXTRA:
+		return NULL;
+
+	default:
+		return (char *)text;
+	}
+}
+
+int
+srplug_daemon_cmdln_parse(int                                argc,
+                          char *                             argv[],
+                          const struct srplug_daemon_cmdln * cmdln,
+                          struct srplug_daemon_conf *        config)
+
+{
+	srplug_assert(argc);
+	srplug_assert(argv);
+	srplug_assert(!cmdln->brief || cmdln->brief[0]);
+	srplug_assert(!cmdln->nr || cmdln->opts);
+	//srplug_assert(config);
+	srplug_assert(stroll_array_nr(srplug_daemon_cmdln_intern_opts) > 1);
+
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+	static const struct elog_stdio_conf  stdlog_dflt = {
+		.super.severity = CONFIG_SRPLUG_DAEMON_STDLOG_SEVERITY_VALUE,
+		.format         = ELOG_TAG_FMT
+	};
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+	static const struct elog_syslog_conf syslog_dflt = {
+		.super.severity = CONFIG_SRPLUG_DAEMON_SYSLOG_SEVERITY_VALUE,
+		.format         = ELOG_TAG_FMT | ELOG_PID_FMT,
+		.facility       = CONFIG_SRPLUG_DAEMON_SYSLOG_FACILITY_VALUE
+	};
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+	struct argp_option *           opts;
+	unsigned int                   o;
+	size_t                         col = 0;
+	char *                         fmt;
+	int                            ret;
+	struct srplug_daemon_cmdln_ctx ctx = {
+		.argp  = {
+			.parser      = srplug_daemon_cmdln_argp_parser,
+			/* No non-option arguments expected. */
+			.args_doc    = NULL,
+			.doc         = NULL,
+			/* One single top-level parser. */
+			.children    = NULL,
+			.help_filter = srplug_daemon_cmdln_help_filter,
+			/* no string translation support. */
+			.argp_domain = NULL
+		},
+		.cmdln = cmdln,
+		.conf  = config
+	};
+
+	opts = malloc((cmdln->nr +
+	               stroll_array_nr(srplug_daemon_cmdln_intern_opts)) *
+	              sizeof(opts[0]));
+	if (!opts)
+		abort();
+
+	for (o = 0; o < cmdln->nr; o++) {
+		srplug_daemon_cmdln_assert_opt(&cmdln->opts[o]);
+
+		struct argp_option * opt = &opts[o];
+
+		opt->name = cmdln->opts[o].long_name;
+		opt->key = cmdln->opts[o].short_name;
+		opt->arg = cmdln->opts[o].arg_name;
+		opt->flags = cmdln->opts[o].required ? 0 : OPTION_ARG_OPTIONAL;
+		opt->doc = cmdln->opts[o].help;
+		opt->group = 0;
+
+		col = srplug_daemon_cmdln_optdesc_col(opt, col);
+	}
+
+	srplug_daemon_cmdln_assert_optnames(cmdln->opts, cmdln->nr);
+
+	if (cmdln->nr) {
+		stroll_array_quick_sort(cmdln->opts,
+		                        cmdln->nr,
+		                        sizeof(cmdln->opts[0]),
+		                        srplug_daemon_cmdln_cmp_optkeys,
+		                        NULL);
+		srplug_daemon_cmdln_assert_optkeys(cmdln->opts, cmdln->nr);
+	}
+
+	for (o = 0;
+	     o < (stroll_array_nr(srplug_daemon_cmdln_intern_opts) - 1);
+	     o++) {
+		srplug_assert(srplug_daemon_cmdln_intern_opts[o].key >= 0);
+		srplug_assert(srplug_daemon_cmdln_intern_opts[o].key <
+		              SRPLUG_OPT_MAX);
+
+		memcpy(&opts[cmdln->nr + o],
+		       &srplug_daemon_cmdln_intern_opts[o],
+		       sizeof(*opts));
+
+		col = srplug_daemon_cmdln_optdesc_col(&opts[cmdln->nr + o],
+		                                      col);
+	}
+	memset(&opts[cmdln->nr + o], 0, sizeof(*opts));
+
+	ret = asprintf(
+		&fmt,
+		"short-opt-col=0,long-opt-col=4,doc-opt-col=0,opt-doc-col=%zu",
+		col);
+	if (ret < 0) {
+		if (errno == ENOMEM)
+			abort();
+		ret = errno;
+		goto free_opts;
+	}
+	srplug_assert(fmt);
+	setenv("ARGP_HELP_FMT", fmt, 1);
+
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+	elog_init_stdio_parse(&ctx.stdlog_parse,
+	                      &config->stdlog,
+	                      &stdlog_dflt);
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+	elog_init_syslog_parse(&ctx.syslog_parse,
+	                       &config->syslog,
+	                       &syslog_dflt);
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+	ctx.argp.options = opts;
+	ret = argp_parse(&ctx.argp,
+	                 argc,
+	                 argv,
+	                 ARGP_NO_EXIT | ARGP_NO_HELP,
+	                 NULL, /* No non-option argument support. */
+	                 &ctx);
+	if (ret == ENOMEM)
+		abort();
+
+#if defined(CONFIG_SRPLUG_DAEMON_STDLOG)
+	elog_fini_parse(&ctx.stdlog_parse);
+#endif /* defined(CONFIG_SRPLUG_DAEMON_STDLOG) */
+#if defined(CONFIG_SRPLUG_DAEMON_SYSLOG)
+	elog_fini_parse(&ctx.syslog_parse);
+#endif /* defined(CONFIG_SRPLUG_DAEMON_SYSLOG) */
+
+	unsetenv("ARGP_HELP_FMT");
+	free(fmt);
+
+free_opts:
+	free(opts);
+
+	return (ret != ESHUTDOWN) ? -ret : 1;
+}
 
 /******************************************************************************
  * Signal handling.
@@ -92,11 +1008,6 @@ srplug_sigs_dispatch(struct upoll_worker * worker,
 		                     strsignal((int)info.ssi_signo));
 		return -ESHUTDOWN;
 
-	case SIGUSR1:
-	case SIGUSR2:
-		/* Silently ignore these... */
-		return 0;
-
 	default:
 		srplug_assert(0);
 	}
@@ -110,31 +1021,21 @@ srplug_sigs_init(struct srplug_sigs_work * worker, const struct upoll * poller)
 	srplug_assert(worker);
 	srplug_assert(poller);
 
-	sigset_t     msk = *usig_empty_msk;
-	sigset_t     blk = *usig_full_msk;
+	sigset_t     blk = *usig_empty_msk;
+	sigset_t     ign = *usig_full_msk;
 	int          ret;
 	const char * msg __unused;
 
-	/* REVIEW ME !!
-	 * Do we need to ignore the following signals as performed by
-	 * sysrepo-plugind ??
-	 *
-	 * - SIGPIPE
-	 * - SIGTSTP
-	 * - SIGTTIN
-	 * - SIGTTOU
-	 *
+	/*
 	 * Setup current working directory ??
 	 */
 
-	usig_addset(&msk, SIGHUP);
-	usig_addset(&msk, SIGINT);
-	usig_addset(&msk, SIGQUIT);
-	usig_addset(&msk, SIGTERM);
-	usig_addset(&msk, SIGUSR1);
-	usig_addset(&msk, SIGUSR2);
+	usig_addset(&blk, SIGHUP);
+	usig_addset(&blk, SIGINT);
+	usig_addset(&blk, SIGQUIT);
+	usig_addset(&blk, SIGTERM);
 
-	ret = usig_open_fd(&msk, SFD_NONBLOCK | SFD_CLOEXEC);
+	ret = usig_open_fd(&blk, SFD_NONBLOCK | SFD_CLOEXEC);
 	if (ret < 0) {
 		msg = "cannot open signal file";
 		goto err;
@@ -154,13 +1055,27 @@ srplug_sigs_init(struct srplug_sigs_work * worker, const struct upoll * poller)
 		goto close;
 	}
 
-	usig_delset(&blk, SIGCONT);
-	usig_delset(&blk, SIGTSTP);
-	usig_delset(&blk, SIGTRAP);
-	usig_delset(&blk, SIGTTIN);
-	usig_delset(&blk, SIGTTOU);
-#warning TODO: SIG_IGN signals instead !!
+	/* Block signals we handle through asynchronous poller. */
 	usig_procmask(SIG_SETMASK, &blk, NULL);
+
+	/*
+	 * Now make sure that we ignore all other signals we do not want, i.e.,
+	 * make sure we still :
+	 * - allow job control and controlling terminal interactions,
+	 * - allow tracing and breakpoints processing (maybe hard and soft),
+	 * - and ensure seccomp(2) failures and bad syscall(2) terminates the
+	 *   daemon...
+	 */
+	usig_delset(&ign, SIGCONT);
+	usig_delset(&ign, SIGTSTP);
+	usig_delset(&ign, SIGTTIN);
+	usig_delset(&ign, SIGTTOU);
+	usig_delset(&ign, SIGTRAP);
+	usig_delset(&ign, SIGSYS);
+	/* ...and don't ignore signals that we handle asynchronously. */
+	usig_notset(&blk, &blk);
+	usig_andset(&ign, &ign, &blk);
+	usig_ignore_set(&ign);
 
 	srplug_daemon_debug("signal handlers registered");
 
@@ -663,115 +1578,34 @@ srplug_daemon_close(struct srplug_daemon * daemon)
 	/* Stop asynchronouns processing of subscriptions. */
 	srplug_daemon_disable_subs(daemon);
 
-	/* Release all subscriptions. */
+#if 0
+	/*
+	 * Release all subscriptions.
+	 * Keep this code for reference purpose only since all subscriptions are
+	 * free'd at sr_disconnect() time.
+	 */
 	srplug_assert(!etux_timer_is_armed(&daemon->sub_tmr));
 	srplug_clear_subs(daemon->sub_ctx);
+#endif
 
 	/* Stop and close signal handling as well as main poller. */
 	srplug_sigs_fini(&daemon->sigs, &daemon->poll);
 	upoll_close(&daemon->poll);
+
+#if 0
+	/*
+	 * Close Sysrepo datastore session.
+	 * Keep this code for reference purpose only since all sessions are
+	 * free'd at sr_disconnect() time.
+	 */
+	sr_session_stop(daemon->sess);
+#endif
 
 	/* Close all sessions and connection to Sysrepo datastores. */
 	sr_disconnect(conn);
 
 	srplug_daemon_debug("daemon finished");
 }
-
-#if defined(CONFIG_SRPLUG_LOG)
-
-static void
-srplug_log_cb(sr_log_level_t level, const char * message)
-{
-	srplug_assert(srplug_daemon_logger);
-	srplug_assert(message);
-	
-	enum elog_severity svrt;
-
-	switch (level) {
-	case SR_LL_ERR:
-		svrt = ELOG_ERR_SEVERITY;
-		break;
-	case SR_LL_WRN:
-		svrt = ELOG_WARNING_SEVERITY;
-		break;
-	case SR_LL_INF:
-		svrt = ELOG_NOTICE_SEVERITY;
-		break;
-	case SR_LL_VRB:
-		svrt = ELOG_INFO_SEVERITY;
-		break;
-	case SR_LL_DBG:
-		svrt = ELOG_DEBUG_SEVERITY;
-		break;
-	default:
-		srplug_assert(0);
-	}
-
-	srplug_daemon_log(svrt, "%s", message);
-}
-
-void
-srplug_setup(struct elog * logger)
-{
-	srplug_assert(!srplug_daemon_logger);
-
-	srplug_daemon_logger = logger;
-
-	/*
-	 * Disable Sysrepo's syslog logic.
-	 *
-	 * Comment this as it is disabled by default.
-	 */
-	/* sr_log_syslog(NULL, SR_LL_NONE); */
-
-	/*
-	 * Also disable Sysrepo's logic that logs to standard error.
-	 *
-	 * Comment this as it is disabled by default.
-	 */
-	/* sr_log_stderr(SR_LL_NONE); */
-
-	if (logger) {
-		/*
-		 * Install our own logger to delegate Sysrepo / libyang logging
-		 * message processing to elog.
-		 */
-		sr_log_set_cb(srplug_log_cb);
-	}
-	else {
-		/* Disable Sysrepo / libyang logging entirely. */
-		sr_log_set_cb(NULL);
-	}
-}
-
-#else  /* !defined(CONFIG_SRPLUG_LOG) */
-
-void
-srplug_setup(struct elog * logger)
-{
-	srplug_assert(!srplug_daemon_logger);
-
-	srplug_daemon_logger = NULL;
-
-	/*
-	 * Disable Sysrepo's syslog logic.
-	 *
-	 * Comment this as it is disabled by default.
-	 */
-	/* sr_log_syslog(NULL, SR_LL_NONE); */
-
-	/*
-	 * Also disable Sysrepo's logic that logs to standard error.
-	 *
-	 * Comment this as it is disabled by default.
-	 */
-	/* sr_log_stderr(SR_LL_NONE); */
-
-	/* Disable Sysrepo / libyang logging entirely. */
-	sr_log_set_cb(NULL);
-}
-
-#endif /* defined(CONFIG_SRPLUG_LOG) */
 
 #endif /* defined(CONFIG_SRPLUG_DAEMON) */
 
