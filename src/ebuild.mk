@@ -35,9 +35,9 @@ bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
 nlifd-objs          := nlifd.o repo.o
 nlifd-lots          := ../lib/builtin.a
 nlifd-cflags        := $(common-cflags)
-nlifd-ldflags       := $(common-ldflags) -lsrplug -lsysrepo -lynl
+nlifd-ldflags       := $(common-ldflags) -lsrplug -lynl
 nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-nlifd-pkgconf       += $(libsrplug.a-pkgconf)
+nlifd-pkgconf       += sysrepo libyang $(libsrplug.a-pkgconf)
 nlifd-path          := $(SBINDIR)/nlifd
 
 
