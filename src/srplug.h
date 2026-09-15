@@ -120,6 +120,9 @@ srplug_daemon_log(enum elog_severity severity, const char * format, ...);
 #define srplug_warn(_format, ...) \
 	srplug_daemon_log(ELOG_WARNING_SEVERITY, _format ".", ## __VA_ARGS__)
 
+#define srplug_notice(_format, ...) \
+	srplug_daemon_log(ELOG_NOTICE_SEVERITY, _format ".", ## __VA_ARGS__)
+
 #define srplug_info(_format, ...) \
 	srplug_daemon_log(ELOG_INFO_SEVERITY, _format ".", ## __VA_ARGS__)
 
@@ -144,6 +147,9 @@ srplug_daemon_log(enum elog_severity severity, const char * format, ...);
 	do { } while (0)
 
 #define srplug_info(_format, ...) \
+	do { } while (0)
+
+#define srplug_notice(_format, ...) \
 	do { } while (0)
 
 #define srplug_debug(_format, ...) \
