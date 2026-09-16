@@ -1355,7 +1355,7 @@ srplug_daemon_dispatch_subs(struct upoll_worker * worker,
 
 	struct srplug_daemon * dmn;
 
-	dmn = containerof(worker, struct srplug_daemon, sub_tmr);
+	dmn = containerof(worker, struct srplug_daemon, sub_work);
 	srplug_daemon_assert(dmn);
 
 	srplug_process_subs(dmn->sub_ctx, dmn->sess, &dmn->sub_tmr);
