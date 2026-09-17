@@ -1,35 +1,15 @@
-#ifndef _SRPLUG_H
-#define _SRPLUG_H
+#ifndef _SRPLUG_DAEMON_H
+#define _SRPLUG_DAEMON_H
 
-#include "config.h"
+#if defined(_SRPLUG_THREAD_H)
+#error daemon.h and thread.h header files are mutually exclusive !
+#endif /* defined(_SRPLUG_THREAD_H) */
+
+#include <srplug/common.h>
 #include <utils/poll.h>
 #include <utils/timer.h>
 #include <elog/elog.h>
 #include <sysrepo.h>
-
-#if defined(CONFIG_SRPLUG_ASSERT)
-
-#include <stroll/assert.h>
-
-#define srplug_assert(_cond) \
-	stroll_assert("srplug", _cond)
-
-#else  /* !defined(CONFIG_SRPLUG_ASSERT) */
-
-#define srplug_assert(_cond)
-
-#endif /* defined(CONFIG_SRPLUG_ASSERT) */
-
-extern void *
-srplug_malloc(size_t size);
-
-static inline void
-srplug_free(void * data)
-{
-	free(data);
-}
-
-#if defined(CONFIG_SRPLUG_DAEMON)
 
 /******************************************************************************
  * Command line parsing.
@@ -219,92 +199,20 @@ srplug_daemon_poller(const struct srplug_daemon * daemon)
 	return (const struct upoll *)&daemon->poll;
 }
 
-struct srplug_change_sub {
-	const char *        module;
-	const char *        xpath;
-	sr_module_change_cb on_change;
-	uint32_t            priority;
-	uint32_t            options;
-};
-
 extern int
 srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
                                const struct srplug_change_sub * subscription,
                                void *                           data);
-
-struct srplug_oper_sub {
-	const char *         module;
-	const char *         xpath;
-	sr_oper_get_items_cb on_get;
-	uint32_t             options;
-};
 
 extern int
 srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
                              const struct srplug_oper_sub * subscription,
                              void *                         data);
 
-struct srplug_rpc_sub {
-	const char * xpath;
-	sr_rpc_cb    on_rpc;
-	uint32_t     priority;
-	uint32_t     options;
-};
-
 extern int
 srplug_daemon_rpc_subscribe(struct srplug_daemon *        daemon,
                             const struct srplug_rpc_sub * subscription,
                             void *                        data);
-
-enum srplug_sub_kind {
-	SRPLUG_CHANGE_SUB_KIND = 0,
-	SRPLUG_OPER_SUB_KIND,
-	SRPLUG_RPC_SUB_KIND,
-	SRPLUG_SUB_KIND_NR
-};
-
-struct srplug_sub {
-	enum srplug_sub_kind             kind;
-	union {
-		struct srplug_change_sub change;
-		struct srplug_oper_sub   oper;
-		struct srplug_rpc_sub    rpc;
-	};
-};
-
-#define SRPLUG_CHANGE_SUB(_mod, _xpath, _on_change, _prio, _opts) \
-	{ \
-		.kind   = SRPLUG_CHANGE_SUB_KIND, \
-		.change = { \
-			.module    = _mod, \
-			.xpath     = _xpath, \
-			.on_change = _on_change, \
-			.priority  = _prio, \
-			.options   = _opts \
-		} \
-	}
-
-#define SRPLUG_OPER_SUB(_mod, _xpath, _on_get, _prio, _opts) \
-	{ \
-		.kind = SRPLUG_OPER_SUB_KIND, \
-		.oper = { \
-			.module  = _mod, \
-			.xpath   = _xpath, \
-			.on_get  = _on_get, \
-			.options = _opts \
-		} \
-	}
-
-#define SRPLUG_RPC_SUB(_mod, _xpath, _on_change, _prio, _opts) \
-	{ \
-		.kind = SRPLUG_RPC_SUB_KIND, \
-		.rpc  = { \
-			.xpath     = _xpath, \
-			.on_rpc    = _on_rpc, \
-			.priority  = _prio, \
-			.options   = _opts \
-		} \
-	}
 
 extern int
 srplug_daemon_subscribe(struct srplug_daemon *    daemon,
@@ -327,64 +235,3 @@ extern void
 srplug_daemon_close(struct srplug_daemon * daemon);
 
 #endif /* defined(CONFIG_SRPLUG_DAEMON) */
-
-#if 0
-#if defined(CONFIG_SRPLUG_THREAD)
-
-#include <utils/thread.h>
-#include <utils/event.h>
-
-enum srplug_thread_state {
-	SRPLUG_STARTING_THR_STAT = 0,
-	SRPLUG_RUNNING_THR_STAT,
-	SRPLUG_STOPPING_THR_STAT,
-	SRPLUG_EXITED_THR_STAT,
-	SRPLUG_THR_STAT_NR,
-};
-
-struct srplug_waker_work {
-	struct upoll_worker base;
-	int                 fd;
-};
-
-struct srplug_thread {
-	volatile enum srplug_thread_state state;
-	struct upoll                      poll;
-	struct srplug_waker_work          wake;
-	struct uthr_mutex                 lck;
-	struct uthr_cond                  cond;
-	pthread_t                         id;
-};
-
-#define srplug_thread_assert(_thr) \
-	srplug_assert(_thr); \
-	srplug_assert((_thr)->state >= 0); \
-	srplug_assert((_thr)->state <= SRPLUG_THR_STAT_NR)
-
-static inline const struct upoll *
-srplug_thread_poller(const struct srplug_thread * thread)
-{
-	srplug_thread_assert(thread);
-
-	return (const struct upoll *)&thread->poll;
-}
-
-extern int
-srplug_thread_start(struct srplug_thread * thread);
-
-extern void
-srplug_thread_stop(struct srplug_thread * thread);
-
-extern int
-srplug_thread_init(struct srplug_thread * thread, unsigned int poll_nr);
-
-extern void
-srplug_thread_fini(struct srplug_thread * thread);
-
-extern void
-srplug_setup(const char * name);
-
-#endif /* defined(CONFIG_SRPLUG_THREAD) */
-#endif
-
-#endif /* _SRPLUG_H */

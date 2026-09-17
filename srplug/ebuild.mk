@@ -21,20 +21,18 @@ common-ldflags      := $(common-cflags) $(EXTRA_LDFLAGS) \
                        -Wl,--as-needed \
                        -Wl,-z,start-stop-visibility=internal
 
-ifneq ($(filter y,$(CONFIG_NLIF_ASSERT)),)
+ifneq ($(filter y,$(CONFIG_SRPLUG_ASSERT)),)
 common-cflags       := $(filter-out -DNDEBUG,$(common-cflags))
 common-ldflags      := $(filter-out -DNDEBUG,$(common-ldflags))
-endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
+endif # ($(filter y,$(CONFIG_SRPLUG_ASSERT)),)
 
-bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
-nlifd-objs          := nlifd.o repo.o
-nlifd-lots          := ../lib/builtin.a \
-                       ../srplug/libsrplug.a \
-                       ../srepo/libsrepo.a
-nlifd-cflags        := $(common-cflags)
-nlifd-ldflags       := $(common-ldflags) -lynl
-nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-nlifd-pkgconf       += sysrepo libyang libetux_timer_list libstroll
-nlifd-path          := $(SBINDIR)/nlifd
+arlibs              := libsrplug.a
+libsrplug.a-objs    := static/common.o
+libsrplug.a-objs    += $(call kconf_enabled,SRPLUG_DAEMON,static/daemon.o)
+libsrplug.a-objs    += $(call kconf_enabled,SRPLUG_THREAD,static/thread.o)
+libsrplug.a-cflags  := $(common-cflags)
+libsrplug.a-cflags  += $(call kconf_enabled,SRPLUG_THREAD,-pthread)
+libsrplug.a-pkgconf := $(call kconf_enabled,SRPLUG_DAEMON,libelog) \
+                       libetux_timer_list libstroll
 
 # ex: filetype=make :

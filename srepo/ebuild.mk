@@ -21,20 +21,12 @@ common-ldflags      := $(common-cflags) $(EXTRA_LDFLAGS) \
                        -Wl,--as-needed \
                        -Wl,-z,start-stop-visibility=internal
 
-ifneq ($(filter y,$(CONFIG_NLIF_ASSERT)),)
+ifneq ($(filter y,$(CONFIG_SREPO_ASSERT)),)
 common-cflags       := $(filter-out -DNDEBUG,$(common-cflags))
 common-ldflags      := $(filter-out -DNDEBUG,$(common-ldflags))
-endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
+endif # ($(filter y,$(CONFIG_SREPO_ASSERT)),)
 
-bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
-nlifd-objs          := nlifd.o repo.o
-nlifd-lots          := ../lib/builtin.a \
-                       ../srplug/libsrplug.a \
-                       ../srepo/libsrepo.a
-nlifd-cflags        := $(common-cflags)
-nlifd-ldflags       := $(common-ldflags) -lynl
-nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-nlifd-pkgconf       += sysrepo libyang libetux_timer_list libstroll
-nlifd-path          := $(SBINDIR)/nlifd
-
-# ex: filetype=make :
+arlibs             := libsrepo.a
+libsrepo.a-objs    := static/schema.o static/data.o static/common.o
+libsrepo.a-cflags  := $(common-cflags)
+libsrepo.a-pkgconf := libstroll
