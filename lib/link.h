@@ -13,19 +13,23 @@
 	nlif_assert((_lnk)->_present.carrier); \
 	nlif_assert((_lnk)->_present.group); \
 	nlif_assert((_lnk)->_len.ifname); \
-	nlif_assert((_lnk)->_len.ifname < IFNAMSIZ); \
-	nlif_assert(strlen((_lnk)->ifname) == (_lnk)->_len.ifname); \
-	nlif_assert(!(_lnk)->_len.ifalias || \
-	            (((_lnk)->_len.ifalias < IFNAMSIZ) && \
-	             (strlen((_lnk)->ifalias) == (_lnk)->_len.ifalias))); \
+	nlif_assert(nlif_link_validate_name((_lnk)->ifname) == \
+	            (_lnk)->_len.ifname); \
+	nlif_assert((nlif_link_validate_alias((_lnk)->ifalias) == \
+	             (_lnk)->_len.ifalias)); \
 	nlif_assert(!((_lnk)->_present.linkinfo && \
 	              (_lnk)->linkinfo._len.kind) || \
 	            (strlen((_lnk)->linkinfo.kind) == \
 	             (_lnk)->linkinfo._len.kind)); \
 	nlif_assert(!(_lnk)->_present.link || (_lnk)->link); \
 	nlif_assert(!(_lnk)->_present.master || (_lnk)->master); \
-	nlif_assert(!(_lnk)->_present.mtu || (_lnk)->mtu); \
-	nlif_assert((_lnk)->_len.address == sizeof(struct ether_addr))
+	nlif_assert((_lnk)->_present.mtu); \
+	nlif_assert((_lnk)->_present.min_mtu); \
+	nlif_assert((_lnk)->_present.max_mtu); \
+	nlif_assert(!(_lnk)->min_mtu || ((_lnk)->mtu >= (_lnk)->min_mtu)); \
+	nlif_assert(!(_lnk)->max_mtu || ((_lnk)->mtu <= (_lnk)->max_mtu)); \
+	nlif_assert((_lnk)->_len.address == sizeof(struct ether_addr)); \
+	nlif_assert(nlif_link_hwaddr_is_ucast((_lnk)->address))
 
 static inline int
 nlif_link_validate_index(unsigned int index)
@@ -34,7 +38,10 @@ nlif_link_validate_index(unsigned int index)
 }
 
 extern ssize_t
-nlif_link_validate_strid(const char * string);
+nlif_link_validate_name(const char * name);
+
+extern ssize_t
+nlif_link_validate_alias(const char * alias);
 
 #if defined(CONFIG_NLIF_PRINT)
 
@@ -57,9 +64,6 @@ nlif_link_type_str(unsigned short type);
 #define nlif_link_alias_str(_alias) \
 	nlif_maybe_empty_str(_alias)
 
-#define nlif_link_altname_str(_altname) \
-	nlif_maybe_empty_str(_altname)
-
 #define nlif_link_kind_str(_kind) \
 	nlif_maybe_empty_str(_kind)
 
@@ -74,6 +78,18 @@ nlif_link_type_str(unsigned short type);
 
 #define NLIF_LINK_HWADDR_STRSZ \
 	((2U * ETH_ALEN) + (ETH_ALEN - 1U) + 1U)
+
+static inline bool
+nlif_link_hwaddr_is_ucast(const struct ether_addr * address)
+{
+	return !(address->ether_addr_octet[0] & 0x1);
+}
+
+static inline bool
+nlif_link_hwaddr_is_mcast(const struct ether_addr * address)
+{
+	return !nlif_link_hwaddr_is_ucast(address);
+}
 
 static inline char *
 nlif_link_hwaddr_str(const struct ether_addr * hwaddr,

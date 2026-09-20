@@ -23,6 +23,30 @@ nlif_gate_fd(const struct nlif_gate * gate)
 	return ynl_socket_get_fd(gate->sock);
 }
 
+static inline struct rt_link_setlink_req *
+nlif_gate_create_setlink_req(void)
+{
+	struct rt_link_setlink_req * req;
+
+	req = rt_link_setlink_req_alloc();
+	if (req)
+		return req;
+
+	abort();
+}
+
+static inline void
+nlif_gate_destroy_setlink_req(struct rt_link_setlink_req * request)
+{
+	nlif_assert(request);
+
+	rt_link_setlink_req_free(request);
+}
+
+extern int
+nlif_gate_setlink(const struct nlif_gate *     gate,
+                  struct rt_link_setlink_req * request);
+
 extern int
 nlif_gate_load_link_byidx(const struct nlif_gate *      gate,
                           unsigned int                  index,

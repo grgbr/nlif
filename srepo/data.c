@@ -176,3 +176,60 @@ srepo_dat_create_leaf(struct lyd_node *  parent,
 
 	return SR_ERR_LY;
 }
+
+/******************************************************************************
+ * Yang data iteration logic.
+ ******************************************************************************/
+
+sr_error_t
+srepo_dat_foreach_change(sr_session_ctx_t *        session,
+                         const char *              xpath,
+                         srepo_dat_handle_change * handle,
+                         void *                    data)
+{
+	srepo_assert(session);
+	srepo_assert(xpath);
+	srepo_assert(xpath[0]);
+	srepo_assert(handle);
+
+	sr_change_iter_t * iter;
+	sr_error_t         ret;
+
+	ret = sr_get_changes_iter(session, xpath, &iter);
+	if (ret != SR_ERR_OK) {
+		srepo_assert(ret != SR_ERR_INVAL_ARG);
+
+		if (ret == SR_ERR_NO_MEMORY)
+			srepo_abort();
+
+		return ret;
+	}
+
+	do {
+		sr_change_oper_t        oper;
+		const struct lyd_node * node;
+		const char *            old;
+
+		ret = sr_get_change_tree_next(session,
+		                              iter,
+		                              &oper,
+		                              &node,
+		                              &old,
+		                              NULL,
+		                              NULL);
+		if (ret != SR_ERR_OK) {
+			srepo_assert(ret != SR_ERR_INVAL_ARG);
+
+			if (ret == SR_ERR_NO_MEMORY)
+				srepo_abort();
+
+			break;
+		}
+
+		ret = handle(node, oper, old, data);
+	} while (ret == SR_ERR_OK);
+
+	sr_free_change_iter(iter);
+
+	return (ret == SR_ERR_NOT_FOUND) ? SR_ERR_OK : ret;
+}

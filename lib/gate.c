@@ -4,7 +4,7 @@
 #include <stdarg.h>
 
 static struct rt_link_getlink_req *
-nlif_gate_alloc_link_req(void)
+nlif_gate_alloc_getlink_req(void)
 {
 	struct rt_link_getlink_req * req;
 
@@ -35,27 +35,28 @@ nlif_gate_islink_valid(const struct rt_link_getlink_rsp * link)
 	                          link->ifalias))
 		return -EINVAL;
 
-	if (link->_present.prop_list && link->prop_list._count.alt_ifname) {
-		const struct ynl_string * alt = link->prop_list.alt_ifname[0];
-
-		nlif_assert(alt->len &&
-		            (alt->len < IFNAMSIZ) &&
-		            (strlen(alt->str) == alt->len));
-
-		if (nlif_gate_names_equal(link->_len.ifname,
-		                          alt->len,
-		                          link->ifname,
-		                          alt->str))
-			return -EINVAL;
-
-		if (nlif_gate_names_equal(link->_len.ifalias,
-		                          alt->len,
-		                          link->ifalias,
-		                          alt->str))
-			return -EINVAL;
-	}
-
 	return 0;
+}
+
+int
+nlif_gate_setlink(const struct nlif_gate *     gate,
+                  struct rt_link_setlink_req * request)
+{
+	nlif_gate_assert(gate);
+	nlif_assert(request);
+	nlif_assert(request->_hdr.ifi_index);
+
+	int err;
+
+	/* Set interface data. */
+	err = rt_link_setlink(gate->sock, request);
+	if (!err)
+		return 0;
+
+	nlif_info("[%d]: cannot set link: %s.", request->_hdr.ifi_index,
+	          gate->sock->err.msg);
+
+	return nlif_ynl_err(&gate->sock->err);
 }
 
 #if 0
@@ -100,8 +101,7 @@ nlif_gate_getlink(const struct nlif_gate *      gate,
 		return 0;
 	}
 
-	nlif_warn("'%s[%u]': cannot load link: "
-	          "inconsistent attributes.",
+	nlif_warn("'%s[%d]': cannot load link: inconsistent attributes.",
 	          lnk->ifname,
 	          lnk->_hdr.ifi_index);
 
@@ -123,7 +123,7 @@ nlif_gate_load_link_byidx(const struct nlif_gate *      gate,
 	int                          ret;
 
 	/* Allocate link request. */
-	req = nlif_gate_alloc_link_req();
+	req = nlif_gate_alloc_getlink_req();
 
 	/* Search link by its ifindex. */
 	req->_hdr.ifi_index = index;
@@ -147,14 +147,14 @@ nlif_gate_load_link_byname(const struct nlif_gate *      gate,
                            struct rt_link_getlink_rsp ** link)
 {
 	nlif_gate_assert(gate);
-	nlif_assert(nlif_link_validate_strid(name) > 0);
+	nlif_assert(nlif_link_validate_name(name) > 0);
 	nlif_assert(link);
 
 	struct rt_link_getlink_req * req;
 	int                          ret;
 
 	/* Allocate link request. */
-	req = nlif_gate_alloc_link_req();
+	req = nlif_gate_alloc_getlink_req();
 
 	/* Setup name of link to search for. */
 	rt_link_getlink_req_set_ifname(req, name);
@@ -211,7 +211,7 @@ nlif_gate_load_links(const struct nlif_gate *      gate,
 	ynl_dump_foreach(lst, lnk) {
 		ret = nlif_gate_islink_valid(lnk);
 		if (ret) {
-			nlif_warn("'%s[%u]': cannot load link: "
+			nlif_warn("'%s[%d]': cannot load link: "
 			          "inconsistent attributes.",
 			          lnk->ifname,
 			          lnk->_hdr.ifi_index);
@@ -319,7 +319,7 @@ nlif_gate_notify(struct nlif_gate * gate)
 				nlif_obsrv_notify(&gate->notif, lnk);
 			}
 			else {
-				nlif_warn("'%s[%u]': "
+				nlif_warn("'%s[%d]': "
 				          "invalid link notification: "
 				          "inconsistent attributes.",
 				          lnk->ifname,

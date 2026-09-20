@@ -1,0 +1,37 @@
+diff --git a/tools/net/ynl/lib/ynl-priv.h b/tools/net/ynl/lib/ynl-priv.h
+index ced7dce44efb..5e4a542cae9c 100644
+--- a/tools/net/ynl/lib/ynl-priv.h
++++ b/tools/net/ynl/lib/ynl-priv.h
+@@ -313,15 +313,25 @@ ynl_attr_put_str(struct nlmsghdr *nlh, unsigned int attr_type, const char *str)
+ 	struct nlattr *attr;
+ 	size_t len;
+ 
+-	len = strlen(str) + 1;
+-	if (__ynl_attr_put_overflow(nlh, len))
+-		return;
++	if (str) {
++		len = strlen(str) + 1;
++		if (__ynl_attr_put_overflow(nlh, len))
++			return;
+ 
+-	attr = (struct nlattr *)ynl_nlmsg_end_addr(nlh);
+-	attr->nla_type = attr_type;
++		attr = (struct nlattr *)ynl_nlmsg_end_addr(nlh);
++		attr->nla_type = attr_type;
+ 
+-	strcpy((char *)ynl_attr_data(attr), str);
+-	attr->nla_len = NLA_HDRLEN + len;
++		strcpy((char *)ynl_attr_data(attr), str);
++		attr->nla_len = NLA_HDRLEN + len;
++	}
++	else {
++		if (__ynl_attr_put_overflow(nlh, 0))
++			return;
++
++		attr = (struct nlattr *)ynl_nlmsg_end_addr(nlh);
++		attr->nla_type = attr_type;
++		attr->nla_len = NLA_HDRLEN;
++	}
+ 
+ 	nlh->nlmsg_len += NLMSG_ALIGN(attr->nla_len);
+ }

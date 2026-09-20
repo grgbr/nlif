@@ -2,19 +2,35 @@
 #include <stroll/bops.h>
 
 ssize_t
-nlif_link_validate_strid(const char * string)
+nlif_link_validate_name(const char * name)
 {
-	nlif_assert(string);
+	nlif_assert(name);
 
-	size_t len = strnlen(string, IFNAMSIZ);
+	size_t len = strnlen(name, IFNAMSIZ);
 
 	if (!len)
 		return -ENODATA;
-
 	if (len >= IFNAMSIZ)
 		return -ENAMETOOLONG;
 
 	return (ssize_t)len;
+}
+
+ssize_t
+nlif_link_validate_alias(const char * alias)
+{
+	if (alias) {
+		size_t len = strnlen(alias, IFALIASZ);
+
+		if (!len)
+			return -ENODATA;
+		if (len >= IFALIASZ)
+			return -ENAMETOOLONG;
+
+		return (ssize_t)len;
+	}
+	else
+		return 0;
 }
 
 #if defined(CONFIG_NLIF_PRINT)
@@ -171,21 +187,6 @@ nlif_link_print(const struct rt_link_getlink_rsp * link, FILE * stdio)
 	        "     alias:     %s\n",
 	        nlif_link_alias_str(link->_len.ifalias ? link->ifalias : NULL));
 
-	if (link->prop_list._count.alt_ifname) {
-		unsigned int a;
-
-		fprintf(stdio,
-		        "     altnames:  %s",
-		        link->prop_list.alt_ifname[0]->str);
-		for (a = 1; a < link->prop_list._count.alt_ifname; a++)
-			fprintf(stdio,
-			        ",%s",
-			        link->prop_list.alt_ifname[a]->str);
-		fputc('\n', stdio);
-	}
-	else
-		fprintf(stdio, "     altnames:  none\n");
-
 	fprintf(stdio,
 	        "     link:      %s\n",
 	        nlif_link_link_str(link->link, str));
@@ -198,10 +199,17 @@ nlif_link_print(const struct rt_link_getlink_rsp * link, FILE * stdio)
 	fprintf(stdio,
 	        "     mtu:       %s\n",
 	        nlif_link_mtu_str(link->mtu, str));
+	fprintf(stdio,
+	        "     min_mtu:   %s\n",
+	        nlif_link_mtu_str(link->min_mtu, str));
+	fprintf(stdio,
+	        "     max_mtu:   %s\n",
+	        nlif_link_mtu_str(link->max_mtu, str));
 
 	fprintf(stdio,
 	        "     hwaddr:    %s\n",
-	        nlif_link_hwaddr_str((const struct ether_addr *)link->address, str));
+	        nlif_link_hwaddr_str((const struct ether_addr *)link->address,
+	                             str));
 
 	nlif_free(str);
 }

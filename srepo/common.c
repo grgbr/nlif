@@ -12,7 +12,7 @@ srepo_acquire_context(sr_session_ctx_t *     session,
 	ctx = sr_session_acquire_context(session);
 	if (!ctx) {
 		const sr_error_info_t * einfo;
-		int                     err;
+		int                     err __unused;
 
 		err = sr_session_get_error(session, &einfo);
 		srepo_assert(!err);

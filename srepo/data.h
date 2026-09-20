@@ -56,6 +56,22 @@ srepo_dat_node_as_bool(const struct lyd_node * node)
 extern sr_error_t
 srepo_dat_node_dflt_as_bool(const struct lyd_node * node, bool * value);
 
+static inline const char *
+srepo_dat_node_as_str(const struct lyd_node * node)
+{
+	srepo_assert(node);
+	srepo_assert(node->schema);
+	srepo_assert(node->schema->nodetype & LYD_NODE_TERM);
+
+	return lyd_get_value(node);
+}
+
+static inline const char *
+srepo_dat_node_dflt_as_str(const struct lyd_node * node)
+{
+	return srepo_dat_node_dflt(node);
+}
+
 /******************************************************************************
  * Yang data node manipulation.
  ******************************************************************************/
@@ -88,5 +104,20 @@ srepo_dat_create_leaf(struct lyd_node *  parent,
                       const char *       path,
                       const char *       value,
                       struct lyd_node ** leaf);
+
+/******************************************************************************
+ * Yang data iteration logic.
+ ******************************************************************************/
+
+typedef sr_error_t srepo_dat_handle_change(const struct lyd_node *,
+                                           sr_change_oper_t,
+                                           const char *,
+                                           void *);
+
+extern sr_error_t
+srepo_dat_foreach_change(sr_session_ctx_t *        session,
+                         const char *              xpath,
+                         srepo_dat_handle_change * handle,
+                         void *                    data);
 
 #endif /* _SREPO_DATA_H */

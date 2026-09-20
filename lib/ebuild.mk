@@ -14,7 +14,8 @@ common-cflags       := -Wall \
                        -Wmissing-declarations \
                        -D_GNU_SOURCE \
                        $(EXTRA_CFLAGS) \
-                       -fvisibility=internal
+                       -fvisibility=internal \
+                       -DNLIF_YNL_NULL_STR
 
 common-ldflags      := $(common-cflags) $(EXTRA_LDFLAGS) \
                        -Wl,--as-needed \

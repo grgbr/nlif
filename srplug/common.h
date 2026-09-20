@@ -26,7 +26,7 @@
 	srplug_path_log(ELOG_ERR_SEVERITY, _path, _fmt, ## __VA_ARGS__)
 
 #define srplug_path_warn(_path, _fmt, ...) \
-	srplug_path_log(ELOG_WARN_SEVERITY, _path, _fmt, ## __VA_ARGS__)
+	srplug_path_log(ELOG_WARNING_SEVERITY, _path, _fmt, ## __VA_ARGS__)
 
 #define srplug_path_notice(_path, _fmt, ...) \
 	srplug_path_log(ELOG_NOTICE_SEVERITY, _path, _fmt, ## __VA_ARGS__)
@@ -48,7 +48,7 @@
 	srplug_node_log(ELOG_ERR_SEVERITY, _node, _fmt, ## __VA_ARGS__)
 
 #define srplug_node_warn(_node, _fmt, ...) \
-	srplug_node_log(ELOG_WARN_SEVERITY, _node, _fmt, ## __VA_ARGS__)
+	srplug_node_log(ELOG_WARNING_SEVERITY, _node, _fmt, ## __VA_ARGS__)
 
 #define srplug_node_notice(_node, _fmt, ...) \
 	srplug_node_log(ELOG_NOTICE_SEVERITY, _node, _fmt, ## __VA_ARGS__)
