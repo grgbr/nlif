@@ -17,6 +17,20 @@ nlif_malloc(size_t size)
 }
 
 char *
+nlif_dup_str(const char * string)
+{
+	nlif_assert(string);
+
+	char * str;
+
+	str = strdup(string);
+	if (!str)
+		abort();
+
+	return str;
+}
+
+char *
 nlif_clone_str(const char * string, size_t length)
 {
 	nlif_assert(string);

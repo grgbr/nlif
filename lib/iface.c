@@ -3,238 +3,18 @@
 #include "link.h"
 #include <stroll/bmap.h>
 
-#if defined(CONFIG_NLIF_PRINT)
-
-void
-nlif_iface_print(const struct nlif_iface * interface, FILE * stdio)
-{
-	nlif_iface_assert(interface);
-
-	char * str;
-
-	str = nlif_malloc(stroll_max(stroll_max(NLIF_LINK_FLAGS_STRSZ,
-	                                        NLIF_LINK_HWADDR_STRSZ),
-	                             NLIF_UINT_STRSZ));
-	nlif_assert(str);
-
-	fprintf(stdio,
-	        "%3u: %s\n",
-	        nlif_iface_index(interface),
-	        nlif_iface_name(interface));
-
-	fprintf(stdio, "     group:     %u\n", interface->group);
-
-
-	fprintf(stdio,
-	        "     flags:     %s\n",
-	        nlif_link_flags_str(nlif_iface_flags(interface), str));
-
-	fprintf(stdio,
-	        "     operstate: %s\n",
-	        nlif_link_operstate_str(nlif_iface_operstate(interface)));
-
-	fprintf(stdio,
-	        "     linkmode:  %s\n",
-	        nlif_link_mode_str(nlif_iface_linkmode(interface)));
-
-	fprintf(stdio,
-	        "     type:      %s\n",
-	        nlif_link_type_str(nlif_iface_type(interface)));
-
-	fprintf(stdio,
-	        "     alias:     %s\n",
-	        nlif_link_alias_str(nlif_iface_alias(interface)));
-
-	fprintf(stdio,
-	        "     kind:      %s\n",
-	        nlif_link_kind_str(nlif_iface_kind(interface)));
-
-	fprintf(stdio,
-	        "     link:      %s\n",
-	        nlif_link_link_str(nlif_iface_link(interface), str));
-
-	fprintf(stdio,
-	        "     master:    %s\n",
-	        nlif_link_master_str(nlif_iface_master(interface), str));
-	
-	fprintf(stdio,
-	        "     mtu:       %s\n",
-	        nlif_link_mtu_str(nlif_iface_mtu(interface), str));
-	fprintf(stdio,
-	        "     min_mtu:   %s\n",
-	        nlif_link_mtu_str(interface->min_mtu, str));
-	fprintf(stdio,
-	        "     max_mtu:   %s\n",
-	        nlif_link_mtu_str(interface->max_mtu, str));
-
-	fprintf(stdio,
-	        "     hwaddr:    %s\n",
-	        nlif_link_hwaddr_str(nlif_iface_hwaddr(interface), str));
-
-	nlif_free((void *)str);
-}
-
-#endif /* defined(CONFIG_NLIF_PRINT) */
-
-int
-nlif_iface_set_alias(struct nlif_iface * interface, const char * alias)
-{
-	nlif_iface_assert(interface);
-	nlif_assert(nlif_iface_validate_alias(alias) >= 0);
-
-	if (alias) {
-		ssize_t len;
-
-		len = nlif_iface_validate_alias(alias);
-		if (!interface->alias || strcmp(interface->alias, alias)) {
-			/*
-			 * Replace old alias (if any) with the new one provided
-			 * that `alias' does not conflict with current
-			 * interface's name.
-			 */
-			if (!strcmp(alias, interface->name))
-				return -EEXIST;
-
-			stroll_bmap_set(&interface->dirty_fields,
-			                NLIF_ALIAS_IFACE_FLD);
-			nlif_free(interface->alias);
-			interface->alias = nlif_clone_str(alias, len);
-		}
-	}
-	else {
-		if (interface->alias) {
-			/* Remove existing alias. */
-			stroll_bmap_set(&interface->dirty_fields,
-			                NLIF_ALIAS_IFACE_FLD);
-			nlif_free(interface->alias);
-			interface->alias = NULL;
-		}
-	}
-
-	return 0;
-}
-
-void
-nlif_iface_set_group(struct nlif_iface * interface, unsigned int group)
-{
-	nlif_iface_assert(interface);
-
-	if (group != interface->group) {
-		interface->group = group;
-		stroll_bmap_set(&interface->dirty_fields, NLIF_GROUP_IFACE_FLD);
-	}
-}
-
-void
-nlif_iface_set_admstate(struct nlif_iface * interface, bool up)
-{
-	nlif_iface_assert(interface);
-
-	unsigned int msk = up ? IFF_UP : 0;
-
-	if ((interface->flags & IFF_UP) != msk) {
-		interface->flags &= ~IFF_UP;
-		interface->flags |= msk;
-		interface->dirty_flags |= IFF_UP;
-	}
-}
-
-int
-nlif_iface_set_mtu(struct nlif_iface * interface, unsigned int mtu)
-{
-	nlif_iface_assert(interface);
-
-	if (mtu != interface->mtu) {
-		int ret;
-
-		ret = nlif_iface_validate_mtu(mtu, interface);
-		if (!ret) {
-			interface->mtu = mtu;
-			stroll_bmap_set(&interface->dirty_fields,
-			                NLIF_MTU_IFACE_FLD);
-		}
-
-		return ret;
-	}
-	else
-		return 0;
-}
-
-int
-nlif_iface_validate_hwaddr(const struct ether_addr * address)
-{
-	nlif_assert(address);
-
-	static const struct ether_addr zero = { 0, };
-
-	/*
-	 * Reject `00:00:00:00:00:00' address and accept unicast addresses only.
-	 *
-	 * Note that some device may hold a zero address when their internal ROM
-	 * / address logic has not been initialized yet.
-	 * This is the reason why a zero address is not rejected at interface /
-	 * link creation / loading time.
-	 */
-	if (memcmp(address, &zero, sizeof(*address)) &&
-	    nlif_link_hwaddr_is_ucast(address))
-		return 0;
-
-	return -EINVAL;
-}
-
-int
-nlif_iface_set_hwaddr(struct nlif_iface *       interface,
-                      const struct ether_addr * address)
-{
-	nlif_iface_assert(interface);
-	nlif_assert(address);
-
-	if (memcmp(address, &interface->hwadr, sizeof(*address))) {
-		int ret;
-
-		ret = nlif_iface_validate_hwaddr(address);
-		if (!ret) {
-			memcpy(&interface->hwadr, address, sizeof(*address));
-			stroll_bmap_set(&interface->dirty_fields,
-			                NLIF_HWADR_IFACE_FLD);
-		}
-
-		return ret;
-	}
-	else
-		return 0;
-}
-
-struct nlif_iface *
-nlif_iface_alloc(void)
-{
-	struct nlif_iface * iface;
-
-	iface = nlif_malloc(sizeof(*iface));
-	nlif_assert(iface);
-
-	return iface;
-}
-
-void
-nlif_iface_free(struct nlif_iface * interface)
-{
-	nlif_assert(interface);
-
-	nlif_free(interface);
-}
-
 static void
 nlif_iface_fill(struct nlif_iface *                interface,
                 const struct rt_link_getlink_rsp * link)
 {
 	nlif_link_assert(link);
 
-	stroll_bmap_setup_clear(&interface->dirty_fields);
-	stroll_bmap_setup_clear(&interface->dirty_flags);
+	interface->state = NLIF_CLEAN_STAT;
+	stroll_bmap_clear_all(&interface->dirty_fields);
 	interface->idx = link->_hdr.ifi_index;
 	interface->group = link->group;
 	interface->flags = link->_hdr.ifi_flags;
+	stroll_bmap_clear_all(&interface->dirty_flags);
 	interface->opstat = link->operstate;
 	interface->lnkmod = link->linkmode;
 	interface->type = link->_hdr.ifi_type;
@@ -270,6 +50,541 @@ nlif_iface_fill(struct nlif_iface *                interface,
 	memcpy(&interface->hwadr, link->address, sizeof(interface->hwadr));
 }
 
+static int
+_nlif_iface_load_byidx(struct nlif_iface *      interface,
+                       unsigned int             index,
+                       const struct nlif_gate * gate)
+{
+	nlif_assert(interface);
+	nlif_assert(!nlif_iface_validate_index(index));
+	nlif_gate_assert(gate);
+
+	struct rt_link_getlink_rsp * lnk;
+	int                          err;
+
+	err = nlif_gate_load_link_byidx(gate, index, &lnk);
+	if (err) {
+		interface->state = NLIF_INVALID_STAT;
+		return err;
+	}
+
+	nlif_iface_fill(interface, lnk);
+
+	nlif_gate_destroy_link(lnk);
+
+	return 0;
+}
+
+static int
+nlif_iface_sync(struct nlif_iface * interface)
+{
+	nlif_iface_assert(interface);
+
+	switch (interface->state) {
+	case NLIF_CLEAN_STAT:
+	case NLIF_DIRTY_STAT:
+		return 0;
+
+	case NLIF_INVALID_STAT:
+		return _nlif_iface_load_byidx(interface,
+		                              interface->idx,
+		                              interface->gate);
+
+	default:
+		nlif_assert(0);
+		return -EBADFD;
+	}
+}
+
+#if defined(CONFIG_NLIF_PRINT)
+
+int
+nlif_iface_print(struct nlif_iface * interface, FILE * stdio)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(stdio);
+
+	int    ret;
+	char * str;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	str = nlif_malloc(stroll_max(stroll_max(NLIF_LINK_FLAGS_STRSZ,
+	                                        NLIF_LINK_HWADDR_STRSZ),
+	                             NLIF_UINT_STRSZ));
+	nlif_assert(str);
+
+	fprintf(stdio, "%3u: %s\n", interface->idx, interface->name);
+
+	fprintf(stdio, "     group:     %u\n", interface->group);
+
+
+	fprintf(stdio,
+	        "     flags:     %s\n",
+	        nlif_link_flags_str(interface->flags, str));
+
+	fprintf(stdio,
+	        "     operstate: %s\n",
+	        nlif_link_operstate_str(interface->opstat));
+
+	fprintf(stdio,
+	        "     linkmode:  %s\n",
+	        nlif_link_mode_str(interface->lnkmod));
+
+	fprintf(stdio,
+	        "     type:      %s\n",
+	        nlif_link_type_str(interface->type));
+
+	fprintf(stdio,
+	        "     alias:     %s\n",
+	        nlif_link_alias_str(interface->alias));
+
+	fprintf(stdio,
+	        "     kind:      %s\n",
+	        nlif_link_kind_str(interface->kind));
+
+	fprintf(stdio,
+	        "     link:      %s\n",
+	        nlif_link_link_str(interface->lnk, str));
+
+	fprintf(stdio,
+	        "     master:    %s\n",
+	        nlif_link_master_str(interface->mst, str));
+	
+	fprintf(stdio,
+	        "     mtu:       %s\n",
+	        nlif_link_mtu_str(interface->mtu, str));
+	fprintf(stdio,
+	        "     min_mtu:   %s\n",
+	        nlif_link_mtu_str(interface->min_mtu, str));
+	fprintf(stdio,
+	        "     max_mtu:   %s\n",
+	        nlif_link_mtu_str(interface->max_mtu, str));
+
+	fprintf(stdio,
+	        "     hwaddr:    %s\n",
+	        nlif_link_hwaddr_str(&interface->hwadr, str));
+
+	nlif_free((void *)str);
+
+	return 0;
+}
+
+#endif /* defined(CONFIG_NLIF_PRINT) */
+
+int
+nlif_iface_set_name(struct nlif_iface * interface, const char * name)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(nlif_iface_validate_name(name) > 0);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	if (strcmp(interface->name, name)) {
+		/*
+		 * Replace old name (if any) with the new one provided
+		 * that `name' does not conflict with current
+		 * interface's alias.
+		 */
+		if (!strcmp(name, interface->alias))
+			return -EEXIST;
+
+		interface->state = NLIF_DIRTY_STAT;
+		stroll_bmap_set(&interface->dirty_fields,
+		                NLIF_NAME_IFACE_FLD);
+		memcpy(interface->name, name, sizeof(interface->name));
+	}
+
+	return 0;
+}
+
+int
+nlif_iface_set_alias(struct nlif_iface * interface, const char * alias)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(nlif_iface_validate_alias(alias) >= 0);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	if (alias) {
+		if (!interface->alias || strcmp(interface->alias, alias)) {
+			/*
+			 * Replace old alias (if any) with the new one provided
+			 * that `alias' does not conflict with current
+			 * interface's name.
+			 */
+			if (!strcmp(alias, interface->name))
+				return -EEXIST;
+
+			interface->state = NLIF_DIRTY_STAT;
+			stroll_bmap_set(&interface->dirty_fields,
+			                NLIF_ALIAS_IFACE_FLD);
+			nlif_free(interface->alias);
+			interface->alias = nlif_dup_str(alias);
+		}
+	}
+	else {
+		if (interface->alias) {
+			/* Remove existing alias. */
+			interface->state = NLIF_DIRTY_STAT;
+			stroll_bmap_set(&interface->dirty_fields,
+			                NLIF_ALIAS_IFACE_FLD);
+			nlif_free(interface->alias);
+			interface->alias = NULL;
+		}
+	}
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_group(struct nlif_iface * interface, unsigned int * group)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(group);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*group = nlif_iface_group(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_set_group(struct nlif_iface * interface, unsigned int group)
+{
+	nlif_iface_assert(interface);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	if (group != interface->group) {
+		interface->group = group;
+		interface->state = NLIF_DIRTY_STAT;
+		stroll_bmap_set(&interface->dirty_fields, NLIF_GROUP_IFACE_FLD);
+	}
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_flags(struct nlif_iface * interface, unsigned int * flags)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(flags);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*flags = nlif_iface_flags(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_set_admstate(struct nlif_iface * interface, bool up)
+{
+	nlif_iface_assert(interface);
+
+	int          ret;
+	unsigned int msk = up ? IFF_UP : 0;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	if ((interface->flags & IFF_UP) != msk) {
+		interface->flags &= ~IFF_UP;
+		interface->flags |= msk;
+		interface->dirty_flags |= IFF_UP;
+	}
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_operstate(struct nlif_iface * interface,
+                              unsigned char *     state)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(state);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*state = nlif_iface_operstate(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_linkmode(struct nlif_iface * interface,
+                             unsigned char *     mode)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(mode);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*mode = nlif_iface_linkmode(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_type(struct nlif_iface * interface, unsigned short * type)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(type);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*type = nlif_iface_type(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_name(struct nlif_iface * interface, const char ** name)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(name);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*name = nlif_iface_name(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_alias(struct nlif_iface * interface, const char ** alias)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(alias);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*alias = nlif_iface_alias(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_kind(struct nlif_iface * interface, const char ** kind)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(kind);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*kind = nlif_iface_kind(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_link(struct nlif_iface * interface, unsigned int * link)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(link);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*link = nlif_iface_link(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_master(struct nlif_iface * interface, unsigned int * master)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(master);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*master = nlif_iface_master(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_coherent_mtu(struct nlif_iface * interface, unsigned int * mtu)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(mtu);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*mtu = nlif_iface_mtu(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_set_mtu(struct nlif_iface * interface, unsigned int mtu)
+{
+	nlif_iface_assert(interface);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	if (mtu != interface->mtu) {
+		ret = nlif_iface_validate_mtu(mtu, interface);
+		if (!ret) {
+			interface->mtu = mtu;
+			interface->state = NLIF_DIRTY_STAT;
+			stroll_bmap_set(&interface->dirty_fields,
+			                NLIF_MTU_IFACE_FLD);
+		}
+	}
+
+	return ret;
+}
+
+int
+nlif_iface_validate_hwaddr(const struct ether_addr * address)
+{
+	nlif_assert(address);
+
+	static const struct ether_addr zero = { 0, };
+
+	/*
+	 * Reject `00:00:00:00:00:00' address and accept unicast addresses only.
+	 *
+	 * Note that some device may hold a zero address when their internal ROM
+	 * / address logic has not been initialized yet.
+	 * This is the reason why a zero address is not rejected at interface /
+	 * link creation / loading time.
+	 */
+	if (memcmp(address, &zero, sizeof(*address)) &&
+	    nlif_link_hwaddr_is_ucast(address))
+		return 0;
+
+	return -EINVAL;
+}
+
+int
+nlif_iface_coherent_hwaddr(struct nlif_iface *        interface,
+                           const struct ether_addr ** address)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(address);
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	*address = nlif_iface_hwaddr(interface);
+
+	return 0;
+}
+
+int
+nlif_iface_set_hwaddr(struct nlif_iface *       interface,
+                      const struct ether_addr * address)
+{
+	nlif_iface_assert(interface);
+	nlif_assert(!nlif_iface_validate_hwaddr(address));
+
+	int ret;
+
+	ret = nlif_iface_sync(interface);
+	if (ret)
+		return ret;
+
+	if (memcmp(address, &interface->hwadr, sizeof(*address))) {
+		interface->state = NLIF_DIRTY_STAT;
+		stroll_bmap_set(&interface->dirty_fields,
+		                NLIF_HWADR_IFACE_FLD);
+		memcpy(&interface->hwadr, address, sizeof(*address));
+	}
+
+	return 0;
+}
+
+struct nlif_iface *
+nlif_iface_alloc(void)
+{
+	struct nlif_iface * iface;
+
+	iface = nlif_malloc(sizeof(*iface));
+	nlif_assert(iface);
+
+	iface->state = NLIF_STAT_NR;
+
+	return iface;
+}
+
+void
+nlif_iface_free(struct nlif_iface * interface)
+{
+	nlif_assert(interface);
+
+	nlif_free(interface);
+}
+
 void
 nlif_iface_refresh_state(struct nlif_iface *                interface,
                          const struct rt_link_getlink_rsp * link)
@@ -278,7 +593,11 @@ nlif_iface_refresh_state(struct nlif_iface *                interface,
 	nlif_assert(!nlif_gate_islink_valid(link));
 	nlif_assert(interface->idx == (unsigned int)link->_hdr.ifi_index);
 
+	if (!interface->dirty_fields)
+		interface->state = NLIF_CLEAN_STAT;
+
 	interface->flags = link->_hdr.ifi_flags;
+	stroll_bmap_clear_all(&interface->dirty_flags);
 	interface->opstat = link->operstate;
 	interface->lnkmod = link->linkmode;
 }
@@ -297,25 +616,15 @@ nlif_iface_reload_bylink(struct nlif_iface *                interface,
 }
 
 int
-nlif_iface_reload(struct nlif_iface * interface, const struct nlif_gate * gate)
+nlif_iface_reload(struct nlif_iface * interface)
 {
 	nlif_iface_assert(interface);
 
-	unsigned int idx = interface->idx;
-
 	nlif_iface_fini(interface);
 
-	return nlif_iface_load_byidx(interface, idx, gate);
-}
-
-void
-nlif_iface_load_bylink(struct nlif_iface *                interface,
-                       const struct rt_link_getlink_rsp * link)
-{
-	nlif_assert(link);
-	nlif_assert(!nlif_gate_islink_valid(link));
-
-	nlif_iface_fill(interface, link);
+	return _nlif_iface_load_byidx(interface,
+	                              interface->idx,
+	                              interface->gate);
 }
 
 int
@@ -327,18 +636,15 @@ nlif_iface_load_byidx(struct nlif_iface *      interface,
 	nlif_assert(!nlif_iface_validate_index(index));
 	nlif_gate_assert(gate);
 
-	struct rt_link_getlink_rsp * lnk;
-	int                          err;
+	int ret;
 
-	err = nlif_gate_load_link_byidx(gate, index, &lnk);
-	if (err)
-		return err;
+	ret = _nlif_iface_load_byidx(interface, index, gate);
+	if (!ret) {
+		interface->gate = gate;
+		return 0;
+	}
 
-	nlif_iface_fill(interface, lnk);
-
-	nlif_gate_destroy_link(lnk);
-
-	return 0;
+	return ret;
 }
 
 int
@@ -354,9 +660,12 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
 	int                          err;
 
 	err = nlif_gate_load_link_byname(gate, name, &lnk);
-	if (err)
+	if (err) {
+		interface->state = NLIF_INVALID_STAT;
 		return err;
+	}
 
+	interface->gate = gate;
 	nlif_iface_fill(interface, lnk);
 
 	nlif_gate_destroy_link(lnk);
@@ -365,12 +674,15 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
 }
 
 int
-nlif_iface_apply(struct nlif_iface * interface, const struct nlif_gate * gate)
+nlif_iface_apply(struct nlif_iface * interface)
 {
 	nlif_iface_assert(interface);
-	nlif_gate_assert(gate);
+	nlif_assert(interface->state != NLIF_INVALID_STAT);
 
-	if (interface->dirty_fields || interface->dirty_flags) {
+	if (interface->state == NLIF_DIRTY_STAT) {
+		nlif_assert(interface->dirty_fields ||
+		            interface->dirty_flags);
+
 		struct rt_link_setlink_req * req;
 		int                          ret;
 
@@ -384,6 +696,11 @@ nlif_iface_apply(struct nlif_iface * interface, const struct nlif_gate * gate)
 		if (stroll_bmap_test(interface->dirty_fields,
 		                     NLIF_GROUP_IFACE_FLD))
 			rt_link_setlink_req_set_group(req, interface->group);
+
+		if (stroll_bmap_test(interface->dirty_fields,
+		                     NLIF_NAME_IFACE_FLD))
+			rt_link_setlink_req_set_ifname(req, interface->name);
+
 
 		if (stroll_bmap_test(interface->dirty_fields,
 		                     NLIF_ALIAS_IFACE_FLD)) {
@@ -414,15 +731,18 @@ nlif_iface_apply(struct nlif_iface * interface, const struct nlif_gate * gate)
 				&interface->hwadr,
 				sizeof(interface->hwadr));
 
-		ret = nlif_gate_setlink(gate, req);
+		ret = nlif_gate_setlink(interface->gate, req);
 
 		nlif_gate_destroy_setlink_req(req);
 
 		if (!ret) {
-			stroll_bmap_setup_clear(&interface->dirty_fields);
-			stroll_bmap_setup_clear(&interface->dirty_flags);
+			interface->state = NLIF_CLEAN_STAT;
+			stroll_bmap_clear_all(&interface->dirty_fields);
+			stroll_bmap_clear_all(&interface->dirty_flags);
 			return 0;
 		}
+		else
+			interface->state = NLIF_INVALID_STAT;
 
 		return ret;
 	}
@@ -439,27 +759,12 @@ nlif_iface_fini(struct nlif_iface * interface)
 	nlif_free(interface->kind);
 }
 
-void
-nlif_iface_create_bylink(const struct rt_link_getlink_rsp * link,
-                         struct nlif_iface **               interface)
-{
-	nlif_assert(link);
-	nlif_assert(!nlif_gate_islink_valid(link));
-	nlif_assert(interface);
-
-	struct nlif_iface * iface;
-
-	iface = nlif_iface_alloc();
-	nlif_iface_load_bylink(iface, link);
-
-	*interface = iface;
-}
-
 int
 nlif_iface_create_byidx(unsigned int             index,
                         const struct nlif_gate * gate,
                         struct nlif_iface **     interface)
 {
+	nlif_assert(!nlif_iface_validate_index(index));
 	nlif_gate_assert(gate);
 	nlif_assert(interface);
 
@@ -484,7 +789,7 @@ nlif_iface_create_byname(const char *             name,
                          const struct nlif_gate * gate,
                          struct nlif_iface **     interface)
 {
-	nlif_assert(name);
+	nlif_assert(nlif_iface_validate_name(name) > 0);
 	nlif_gate_assert(gate);
 	nlif_assert(interface);
 
@@ -502,6 +807,26 @@ nlif_iface_create_byname(const char *             name,
 	nlif_iface_free(iface);
 
 	return err;
+}
+
+void
+nlif_iface_create_bylink(const struct rt_link_getlink_rsp * link,
+                         const struct nlif_gate *           gate,
+                         struct nlif_iface **               interface)
+{
+	nlif_assert(link);
+	nlif_assert(!nlif_gate_islink_valid(link));
+	nlif_gate_assert(gate);
+	nlif_assert(interface);
+
+	struct nlif_iface * iface;
+
+	iface = nlif_iface_alloc();
+
+	iface->gate = gate;
+	nlif_iface_fill(iface, link);
+
+	*interface = iface;
 }
 
 void
