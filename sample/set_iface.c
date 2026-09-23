@@ -99,7 +99,7 @@ main(int argc, char * const argv[])
 				goto destroy;
 			}
 
-			ret = nlif_iface_apply(iface, &gate);
+			ret = nlif_iface_apply(iface);
 			if (ret) {
 				nlif_err("'%s': "
 				         "cannot apply interface configuration: "

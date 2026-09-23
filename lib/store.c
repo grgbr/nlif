@@ -350,7 +350,7 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate,
 	if (!nlif_store_may_register_iface_index(store,
 	                                         link->_hdr.ifi_index,
 	                                         &indxb)) {
-		nlif_warn("'%s[%u]': cannot load link: already exists.",
+		nlif_warn("%s[%d]: cannot load link: already exists.",
 		          link->ifname,
 		          link->_hdr.ifi_index);
 
@@ -359,7 +359,7 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate,
 	}
 
 	if (!nlif_store_may_register_iface_name(store, link->ifname, &nameb)) {
-		nlif_warn("'%s[%u]': cannot load link: duplicate name.",
+		nlif_warn("%s[%d]: cannot load link: duplicate name.",
 		          link->ifname,
 		          link->_hdr.ifi_index);
 
@@ -371,7 +371,7 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate,
 		if (!nlif_store_may_register_iface_alias(store,
 		                                         link->ifalias,
 		                                         &aliasb)) {
-			nlif_warn("'%s[%u]': cannot load link: "
+			nlif_warn("%s[%d]: cannot load link: "
 			          "'%s': duplicate alias.",
 			          link->ifname,
 			          link->_hdr.ifi_index,
