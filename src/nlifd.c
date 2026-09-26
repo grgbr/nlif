@@ -165,12 +165,6 @@ nlifd_iface_from_node(const struct lyd_node *  term,
  * Netlink interface fields adapters.
  ******************************************************************************/
 
-#define NLIFD_IETF_IFACE_YANG_MODULE \
-	"ietf-interfaces"
-
-#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
-	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces"
-
 static const char *
 nlifd_iface_type_str(unsigned short type, const char * kind)
 {
@@ -218,8 +212,23 @@ nlifd_iface_coherent_type_str(struct nlif_iface * interface, const char ** type)
 }
 
 /******************************************************************************
- * Change subscription events handling.
+ * Subscription events handling.
  ******************************************************************************/
+
+#define NLIFD_IETF_IFACE_YANG_MODULE \
+	"ietf-interfaces"
+
+#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
+	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces"
+
+static struct srplug_feat
+nlifd_arbitrary_names_feat = SRPLUG_FEAT_SETUP("arbitrary-names");
+
+static struct srplug_feat
+nlifd_pre_provisioning_feat = SRPLUG_FEAT_SETUP("pre-provisioning");
+
+static struct srplug_feat
+nlifd_if_mib_feat = SRPLUG_FEAT_SETUP("if-mib");
 
 static sr_error_t
 nlifd_iface_change_enabled(const struct lyd_node * leaf,
@@ -400,13 +409,13 @@ nlifd_iface_restore_type(const struct lyd_node * leaf,
 }
 
 static const struct srplug_change_hndlr nlifd_iface_change_hndlrs[] = {
-	{ .name = "enabled", .handle = nlifd_iface_change_enabled },
-	{ .name = "type",    .handle = nlifd_iface_change_type }
+	SRPLUG_CHANGE_HNDLR("enabled", NULL, nlifd_iface_change_enabled),
+	SRPLUG_CHANGE_HNDLR("type",    NULL, nlifd_iface_change_type)
 };
 
 static const struct srplug_change_hndlr nlifd_iface_restore_hndlrs[] = {
-	{ .name = "enabled", .handle = nlifd_iface_restore_enabled },
-	{ .name = "type",    .handle = nlifd_iface_restore_type }
+	SRPLUG_CHANGE_HNDLR("enabled", NULL, nlifd_iface_restore_enabled),
+	SRPLUG_CHANGE_HNDLR("type",    NULL, nlifd_iface_restore_type)
 };
 
 static sr_error_t
@@ -558,6 +567,7 @@ nlifd_on_iface_change(sr_session_ctx_t * session,
 static const struct srplug_sub nlifd_subs[] = {
 	SRPLUG_CHANGE_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
 	                  NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
+	                  NULL,
 	                  nlifd_on_iface_change,
 	                  0,
 	                  SR_SUBSCR_DEFAULT/*| SR_SUBSCR_ENABLED*/),
@@ -686,15 +696,6 @@ free:
 /******************************************************************************
  * Top-level logic.
  ******************************************************************************/
-
-static struct srplug_feat
-nlifd_arbitrary_names_feat = SRPLUG_FEAT_SETUP("arbitrary-names");
-
-static struct srplug_feat
-nlifd_pre_provisioning_feat = SRPLUG_FEAT_SETUP("pre-provisioning");
-
-static struct srplug_feat
-nlifd_if_mib_feat = SRPLUG_FEAT_SETUP("if-mib");
 
 static int
 nlifd_load(const struct srplug_daemon * daemon,
