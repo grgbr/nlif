@@ -14,7 +14,7 @@ common-cflags       := -Wall \
                        -Wmissing-declarations \
                        -D_GNU_SOURCE \
                        $(EXTRA_CFLAGS) \
-                       -I $(TOPDIR) \
+                       -I$(TOPDIR) \
                        -fvisibility=internal
 
 common-ldflags      := $(common-cflags) $(EXTRA_LDFLAGS) \
@@ -28,13 +28,12 @@ endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
 
 bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
 nlifd-objs          := nlifd.o repo.o
-nlifd-lots          := ../lib/builtin.a \
-                       ../srplug/libsrplug.a \
-                       ../srepo/libsrepo.a
+nlifd-lots          := ../lib/builtin.a
 nlifd-cflags        := $(common-cflags)
 nlifd-ldflags       := $(common-ldflags) -lynl
+nlifd-pkgconf       := libsrplug
 nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-nlifd-pkgconf       += sysrepo libyang libetux_timer_list libstroll
+nlifd-pkgconf       += libetux_timer_list libstroll
 nlifd-path          := $(SBINDIR)/nlifd
 
 # ex: filetype=make :
