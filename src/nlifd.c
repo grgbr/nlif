@@ -603,7 +603,7 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 
 	/* Create default nodes as defined by the interface YANG model. */
 	ret = srplug_dat_populate_defaults(ent, LYD_IMPLICIT_NO_STATE, NULL);
-if (ret != SR_ERR_OK)
+	if (ret != SR_ERR_OK)
 		return ret;
 
 	str = nlifd_iface_type_str(nlif_iface_type(interface),
