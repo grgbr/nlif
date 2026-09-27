@@ -30,7 +30,6 @@ struct nlif_store {
 		.ifaces   = STROLL_DLIST_INIT((_store).ifaces), \
 		.count    = 0
 
-
 #if defined(CONFIG_NLIF_NOTIF)
 
 #define NLIF_STORE_INIT(_store) \
