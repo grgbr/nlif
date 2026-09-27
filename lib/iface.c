@@ -593,7 +593,7 @@ nlif_iface_free(struct nlif_iface * interface)
 	nlif_free(interface);
 }
 
-void
+bool
 nlif_iface_refresh_state(struct nlif_iface *                interface,
                          const struct rt_link_getlink_rsp * link)
 {
@@ -601,14 +601,33 @@ nlif_iface_refresh_state(struct nlif_iface *                interface,
 	nlif_assert(!nlif_gate_islink_valid(link));
 	nlif_assert(interface->idx == (unsigned int)link->_hdr.ifi_index);
 
-	interface->flags &= ~IFF_VOLATILE;
-	interface->flags |= link->_hdr.ifi_flags & IFF_VOLATILE;
-	interface->opstat = link->operstate;
-	interface->lnkmod = link->linkmode;
+	bool change = false;
 
-	nlif_info("%s[%u]: operational state changed.",
-	          interface->name,
-	          interface->idx);
+	if ((interface->flags & IFF_VOLATILE) !=
+	    (link->_hdr.ifi_flags & IFF_VOLATILE)) {
+		interface->flags &= ~IFF_VOLATILE;
+		interface->flags |= link->_hdr.ifi_flags & IFF_VOLATILE;
+		change = true;
+	}
+
+	if (interface->opstat != link->operstate) {
+		interface->opstat = link->operstate;
+		change = true;
+	}
+
+	if (interface->lnkmod != link->linkmode) {
+		interface->lnkmod = link->linkmode;
+		change = true;
+	}
+
+	if (change) {
+		nlif_info("%s[%u]: operational state changed.",
+		          interface->name,
+		          interface->idx);
+		return true;
+	}
+
+	return false;
 }
 
 void

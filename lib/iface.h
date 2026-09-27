@@ -417,7 +417,7 @@ nlif_iface_print(struct nlif_iface * interface, FILE * stdio);
 extern int
 nlif_iface_reload(struct nlif_iface * interface);
 
-extern void
+extern bool
 nlif_iface_refresh_state(struct nlif_iface *                interface,
                          const struct rt_link_getlink_rsp * link);
 
