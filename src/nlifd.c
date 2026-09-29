@@ -290,8 +290,6 @@ nlifd_iface_fill_hwaddr(struct lyd_node * entry, struct nlif_iface * interface)
 	if (ret)
 		return nlifd_iface_error(ret);
 
-	srplug_node_debug(entry, "hwaddr: %s", nlif_link_hwaddr_str(addr, str));
-
 	return srplug_dat_create_leaf(entry,
 	                              "phys-address",
 	                              nlif_link_hwaddr_str(addr, str),
