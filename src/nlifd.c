@@ -794,13 +794,13 @@ nlifd_on_iface_get_phy_address(sr_session_ctx_t * session,
 }
 
 /* Configuration change subscription. */
-static const struct srplug_sub nlifd_change_subs[] = {
-	SRPLUG_CHANGE_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
-	                  NLIFD_IETF_IFACE_YANG_LIST_PATH,
-	                  NULL,
-	                  nlifd_on_iface_change,
-	                  0,
-	                  SR_SUBSCR_DEFAULT/*| SR_SUBSCR_ENABLED*/),
+static const struct srplug_change_sub nlifd_change_sub = {
+	.module    = NLIFD_IETF_IFACE_YANG_MODULE,
+	.xpath     = NLIFD_IETF_IFACE_YANG_LIST_PATH,
+	.feature   = NULL,
+	.on_change = nlifd_on_iface_change,
+	.priority  = 0,
+	.options   = SR_SUBSCR_DEFAULT/*| SR_SUBSCR_ENABLED*/
 };
 
 /* Operational state subscription. */
@@ -834,6 +834,21 @@ static const struct srplug_sub nlifd_oper_subs[] = {
 /******************************************************************************
  * Interfaces configuration data store handling.
  ******************************************************************************/
+
+#if 0
+static struct nlif_obsrv_subscriber nlifd_iface_store_sub;
+
+static sr_error_t
+nlifd_iface_refresh_open_entry(sr_session_ctx_t * session,
+                               struct nlif_iface * interface)
+{
+	sr_data_t * data;
+	sr_error_t  ret;
+
+	ret = sr_get_oper_changes(session, NLIFD_IETF_IFACE_YANG_MODULE, &data);
+	ret = lyd_find_path(data->tree, )
+}
+#endif
 
 static sr_error_t
 nlifd_iface_new_entry(const struct ly_ctx * context,
@@ -886,25 +901,27 @@ nlifd_iface_dstore_empty(sr_session_ctx_t * session, bool * empty)
 	sr_data_t * data;
 	sr_error_t  ret;
 	
-	ret = srplug_dat_load(session,
-	                      NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
-	                      1,
-	                      0,
-	                      &data);
+	ret = srplug_dat_load_data(session,
+	                           NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
+	                           1,
+	                           0,
+	                           &data);
 	switch (ret) {
 	case SR_ERR_OK:
 		*empty = false;
-		return SR_ERR_OK;
+		break;
 
 	case SR_ERR_NOT_FOUND:
 		*empty = true;
-		return SR_ERR_OK;
-	
-	default:
 		break;
+
+	default:
+		return ret;
 	}
 
-	return ret;
+	srplug_dat_release_data(data);
+
+	return SR_ERR_OK;
 }
 
 static sr_error_t
@@ -990,8 +1007,8 @@ nlifd_iface_fill_oper_entry(struct lyd_node *   entry,
 }
 
 static sr_error_t
-nlifd_iface_load_oper_dstore(sr_session_ctx_t *       session,
-                             const struct nlif_repo * repository)
+nlifd_iface_setup_oper_dstore(sr_session_ctx_t *       session,
+                              const struct nlif_repo * repository)
 {
 	srplug_assert(session);
 	nlif_repo_assert(repository);
@@ -1000,11 +1017,16 @@ nlifd_iface_load_oper_dstore(sr_session_ctx_t *       session,
 	sr_error_t        ret;
 	struct lyd_node * node;
 
-	ret = srplug_dat_load(session,
-	                      NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-	                      2,
-	                      SR_OPER_NO_CONFIG | SR_OPER_NO_SUBS,
-	                      &data);
+	/*
+	 * Get data from the top-level container as
+	 * srplug_dat_merge_data_batch() requires top-level data trees to
+	 * prepare its batch of data changes.
+	 */
+	ret = srplug_dat_load_data(session,
+	                           NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                           2,
+	                           SR_OPER_NO_CONFIG | SR_OPER_NO_SUBS,
+	                           &data);
 	if (ret)
 		return ret;
 
@@ -1019,14 +1041,14 @@ nlifd_iface_load_oper_dstore(sr_session_ctx_t *       session,
 			goto release;
 	}
 
-	ret = sr_edit_batch(session, data->tree, "merge");
+	ret = srplug_dat_merge_data_batch(session, data);
 	if (ret != SR_ERR_OK)
 		goto release;
 
-	ret = sr_apply_changes(session, 0);
+	ret = srplug_apply_changes(session);
 
 release:
-	srplug_dat_release(data);
+	srplug_dat_release_data(data);
 
 	return ret;
 }
@@ -1036,8 +1058,8 @@ release:
  ******************************************************************************/
 
 static int
-nlifd_load_config(const struct srplug_daemon * daemon,
-                  const struct nlif_repo *     repository)
+nlifd_load_config(struct srplug_daemon * daemon,
+                  struct nlif_repo *     repository)
 {
 	sr_session_ctx_t *    sess = srplug_daemon_session(daemon);
 	const struct ly_ctx * ctx;
@@ -1075,6 +1097,12 @@ nlifd_load_config(const struct srplug_daemon * daemon,
 			goto release;
 	}
 
+	ret = srplug_daemon_change_subscribe(daemon,
+	                                     &nlifd_change_sub,
+	                                     repository);
+	if (ret != SR_ERR_OK)
+		goto release;
+
 	srplug_release_context(sess);
 
 	return 0;
@@ -1099,7 +1127,7 @@ nlifd_load_oper(const struct srplug_daemon * daemon,
 	if (ret)
 		goto err;
 
-	ret = nlifd_iface_load_oper_dstore(sess, repository);
+	ret = nlifd_iface_setup_oper_dstore(sess, repository);
 	if (ret != SR_ERR_OK)
 		goto err;
 
@@ -1168,17 +1196,18 @@ main(int argc, char * argv[])
 	if (ret)
 		goto close_dmn;
 
+	/*
+	 * Setup running data store, i.e., load interfaces configuration data.
+	 */
 	ret = nlifd_load_config(&dmn, &repo);
 	if (ret)
 		goto close_repo;
 
-	ret = srplug_daemon_subscribe_all(&dmn,
-	                                  nlifd_change_subs,
-	                                  stroll_array_nr(nlifd_change_subs),
-	                                  &repo);
-	if (ret)
-		goto close_repo;
-
+	/*
+	 * Setup operational data store, i.e., load interfaces status data.
+	 * Note: current session datastore has switched to SR_DS_OPERATIONAL
+	 * once returned from nlifd_load_oper().
+	 */
 	ret = nlifd_load_oper(&dmn, &repo);
 	if (ret)
 		goto close_repo;
