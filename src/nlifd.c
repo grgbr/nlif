@@ -793,16 +793,18 @@ nlifd_on_iface_get_phy_address(sr_session_ctx_t * session,
 	                                     repository);
 }
 
-static const struct srplug_sub nlifd_subs[] = {
-	/* Configuration change subscription. */
+/* Configuration change subscription. */
+static const struct srplug_sub nlifd_change_subs[] = {
 	SRPLUG_CHANGE_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
 	                  NLIFD_IETF_IFACE_YANG_LIST_PATH,
 	                  NULL,
 	                  nlifd_on_iface_change,
 	                  0,
 	                  SR_SUBSCR_DEFAULT/*| SR_SUBSCR_ENABLED*/),
+};
 
-	/* Operational state subscription. */
+/* Operational state subscription. */
+static const struct srplug_sub nlifd_oper_subs[] = {
 	SRPLUG_OPER_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
 	                NLIFD_IETF_IFACE_YANG_LIST_PATH "/admin-status",
 	                &nlifd_if_mib_feat,
@@ -906,9 +908,9 @@ nlifd_iface_dstore_empty(sr_session_ctx_t * session, bool * empty)
 }
 
 static sr_error_t
-nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
-                         const struct ly_ctx *    context,
-                         const struct nlif_repo * repository)
+nlifd_iface_reset_config_dstore(sr_session_ctx_t *       session,
+                                const struct ly_ctx *    context,
+                                const struct nlif_repo * repository)
 {
 	srplug_assert(session);
 	srplug_assert(context);
@@ -951,32 +953,91 @@ free:
 	return err;
 }
 
+static sr_error_t
+nlifd_iface_fill_oper_entry(struct lyd_node *   entry,
+                            struct nlif_iface * interface)
+{
+	srplug_assert(entry);
+	srplug_assert(srepo_dat_node_type(entry) == LYS_LIST);
+	srplug_assert(interface);
+	srplug_assert(nlif_iface_state(interface) == NLIF_CLEAN_STAT);
+
+	int ret;
+
+	if (nlifd_if_mib_feat.on) {
+		ret = nlifd_iface_fill_admstate(entry, interface);
+		if (ret != SR_ERR_OK)
+			return ret;
+	}
+
+	ret = nlifd_iface_fill_operstate(entry, interface);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	if (nlifd_if_mib_feat.on) {
+		ret = nlifd_iface_fill_index(entry, interface);
+		if (ret != SR_ERR_OK)
+			return ret;
+	}
+
+	ret = nlifd_iface_fill_hwaddr(entry, interface);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	srplug_node_debug(entry, "interface operational status filled in");
+
+	return SR_ERR_OK;
+}
+
+static sr_error_t
+nlifd_iface_load_oper_dstore(sr_session_ctx_t *       session,
+                             const struct nlif_repo * repository)
+{
+	srplug_assert(session);
+	nlif_repo_assert(repository);
+
+	sr_data_t *       data;
+	sr_error_t        ret;
+	struct lyd_node * node;
+
+	ret = srplug_dat_load(session,
+	                      NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                      2,
+	                      SR_OPER_NO_CONFIG | SR_OPER_NO_SUBS,
+	                      &data);
+	if (ret)
+		return ret;
+
+	srepo_dat_foreach_child(data->tree, node) {
+		struct nlif_iface * iface;
+
+		iface = nlifd_iface_from_node(node, repository);
+		srplug_assert(iface);
+
+		ret = nlifd_iface_fill_oper_entry(node, iface);
+		if (ret != SR_ERR_OK)
+			goto release;
+	}
+
+	ret = sr_edit_batch(session, data->tree, "merge");
+	if (ret != SR_ERR_OK)
+		goto release;
+
+	ret = sr_apply_changes(session, 0);
+
+release:
+	srplug_dat_release(data);
+
+	return ret;
+}
+
 /******************************************************************************
  * Top-level logic.
  ******************************************************************************/
 
-static void
-nlifd_iface_push_oper_state(sr_session_ctx_t * session)
-{
-	struct ly_out * out;
-	sr_data_t *     data;
-	sr_error_t      err;
-
-	err = srplug_open_stdio_print(&out, stdout);
-	if (err == SR_ERR_OK) {
-		err = sr_get_oper_changes(session,
-		                          NLIFD_IETF_IFACE_YANG_MODULE,
-		                          &data);
-		if (err == SR_ERR_OK)
-			srplug_dat_print_data(data, LYD_JSON, out);
-
-		srplug_close_stdio_print(out);
-	}
-}
-
 static int
-nlifd_load(const struct srplug_daemon * daemon,
-           const struct nlif_repo *     repository)
+nlifd_load_config(const struct srplug_daemon * daemon,
+                  const struct nlif_repo *     repository)
 {
 	sr_session_ctx_t *    sess = srplug_daemon_session(daemon);
 	const struct ly_ctx * ctx;
@@ -1009,12 +1070,10 @@ nlifd_load(const struct srplug_daemon * daemon,
 	if (ret != SR_ERR_OK)
 		goto release;
 	if (empty) {
-		ret = nlifd_iface_reset_dstore(sess, ctx, repository);
+		ret = nlifd_iface_reset_config_dstore(sess, ctx, repository);
 		if (ret != SR_ERR_OK)
 			goto release;
 	}
-
-	nlifd_iface_push_oper_state(sess);
 
 	srplug_release_context(sess);
 
@@ -1023,7 +1082,32 @@ nlifd_load(const struct srplug_daemon * daemon,
 release:
 	srplug_release_context(sess);
 err:
-	srplug_err("cannot load interfaces datastore: %s", sr_strerror(ret));
+	srplug_err("cannot load interfaces configuration: %s",
+	           sr_strerror(ret));
+
+	return -EPERM;
+}
+
+static int
+nlifd_load_oper(const struct srplug_daemon * daemon,
+                const struct nlif_repo *     repository)
+{
+	sr_session_ctx_t * sess = srplug_daemon_session(daemon);
+	sr_error_t         ret;
+
+	ret = sr_session_switch_ds(sess, SR_DS_OPERATIONAL);
+	if (ret)
+		goto err;
+
+	ret = nlifd_iface_load_oper_dstore(sess, repository);
+	if (ret != SR_ERR_OK)
+		goto err;
+
+	return 0;
+
+err:
+	srplug_err("cannot load interfaces operational status: %s",
+	           sr_strerror(ret));
 
 	return -EPERM;
 }
@@ -1084,13 +1168,24 @@ main(int argc, char * argv[])
 	if (ret)
 		goto close_dmn;
 
-	ret = nlifd_load(&dmn, &repo);
+	ret = nlifd_load_config(&dmn, &repo);
 	if (ret)
 		goto close_repo;
 
 	ret = srplug_daemon_subscribe_all(&dmn,
-	                                  nlifd_subs,
-	                                  stroll_array_nr(nlifd_subs),
+	                                  nlifd_change_subs,
+	                                  stroll_array_nr(nlifd_change_subs),
+	                                  &repo);
+	if (ret)
+		goto close_repo;
+
+	ret = nlifd_load_oper(&dmn, &repo);
+	if (ret)
+		goto close_repo;
+
+	ret = srplug_daemon_subscribe_all(&dmn,
+	                                  nlifd_oper_subs,
+	                                  stroll_array_nr(nlifd_oper_subs),
 	                                  &repo);
 	if (ret)
 		goto close_repo;
