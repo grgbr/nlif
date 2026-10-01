@@ -27,7 +27,8 @@ common-ldflags      := $(filter-out -DNDEBUG,$(common-ldflags))
 endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
 
 bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
-nlifd-objs          := nlifd.o repo.o
+#nlifd-objs          := nlifd.o repo.o
+nlifd-objs          := nlifd.o
 nlifd-lots          := ../lib/builtin.a
 nlifd-cflags        := $(common-cflags)
 nlifd-ldflags       := $(common-ldflags) -lynl
