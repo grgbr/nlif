@@ -1,0 +1,10 @@
+* rehash interface name / aliases upon set_name / set_alias
+* support event notification when an interface has been loaded ??
+* update physical address upon interface refresh event since it may be changed
+  when the kernel switch to testing mode (check this assertion) ?
+* implement rt_link_getstats_dump() support to dump statistics for all
+  interfaces all at once
+* refine abort() calls to allow client application to register its logic for
+  cleaning up purposes (such as properly closing sysrepo sessions /connections)
+* document APIs
+* unit tests

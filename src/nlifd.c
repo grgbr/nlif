@@ -667,37 +667,132 @@ nlifd_iface_refresh_oper(sr_session_ctx_t *  session,
 	return SR_ERR_OK;
 }
 
-#if 0
+static sr_error_t
+nlifd_iface_get_stats(sr_session_ctx_t *        session,
+                      struct lyd_node *         container,
+                      const struct nlif_store * store)
+{
+	srplug_assert(session);
+	srplug_assert(container);
+	srplug_assert(!strcmp(srepo_dat_node_name(container), "interface"));
+	srplug_assert(srepo_dat_node_type(container) == LYS_LIST);
+	nlif_store_assert(store);
+
+	struct nlif_iface *      iface;
+	int                      ret;
+	struct rtnl_link_stats64 stats;
+
+	iface = nlifd_iface_from_node(container, store);
+	if (!iface)
+		return SR_ERR_NOT_FOUND;
+
+	/*
+	 * ip -s -s link show dev <interface>
+	 * ethtool -S <interface>
+	 */
+	ret = nlif_iface_load_stats(iface, &stats);
+	if (ret)
+		return nlifd_iface_error(ret);
+
+	/* TODO: discontinuity-time */
+
+	ret = srplug_dat_create_leaf_printf(container,
+	                                    "statistics/in-octets",
+	                                    NULL,
+	                                    "%" PRIu64,
+	                                    stats.rx_bytes);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	/* TODO: in-unicast-pkts */
+	/* TODO: in-broadcast-pkts */
+	/* TODO: in-multicast-pkts */
+
+	ret = srplug_dat_create_leaf_printf(container,
+	                                    "statistics/in-discards",
+	                                    NULL,
+	                                    "%" PRIu64,
+	                                    stats.rx_dropped);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	ret = srplug_dat_create_leaf_printf(container,
+	                                    "statistics/in-errors",
+	                                    NULL,
+	                                    "%" PRIu64,
+	                                    stats.rx_errors);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	/* TODO: in-unknown-protos */
+
+	ret = srplug_dat_create_leaf_printf(container,
+	                                    "statistics/out-octets",
+	                                    NULL,
+	                                    "%" PRIu64,
+	                                    stats.tx_bytes);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	/* TODO: out-unicast-pkts */
+	/* TODO: out-broadcast-pkts */
+	/* TODO: out-multicast-pkts */
+
+	ret = srplug_dat_create_leaf_printf(container,
+	                                    "statistics/out-discards",
+	                                    NULL,
+	                                    "%" PRIu64,
+	                                    stats.tx_dropped);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	ret = srplug_dat_create_leaf_printf(container,
+	                                    "statistics/out-errors",
+	                                    NULL,
+	                                    "%" PRIu64,
+	                                    stats.tx_errors);
+	if (ret != SR_ERR_OK)
+		return ret;
+
+	return SR_ERR_OK;
+}
+
 static int
-nlifd_on_iface_get_admin_status(sr_session_ctx_t * session,
-                                uint32_t           sub_id __unused,
-                                const char *       module __unused,
-                                const char *       path __unused,
-                                const char *       request_xpath __unused,
-                                uint32_t           op_id __unused,
-                                struct lyd_node ** parent,
-                                void *             repository)
+nlifd_on_iface_get_stats(sr_session_ctx_t * session,
+                         uint32_t           sub_id __unused,
+                         const char *       module __unused,
+                         const char *       path __unused,
+                         const char *       request_xpath __unused,
+                         uint32_t           op_id __unused,
+                         struct lyd_node ** parent,
+                         void *             store)
 {
 	srplug_assert(parent);
-	srplug_assert(repository);
+	nlif_store_assert((const struct nlif_store *)store);
 
-	return nlifd_on_iface_get_entry_leaf(session,
-	                                     *parent,
-	                                     "admin-status",
-	                                     nlifd_iface_fill_admstate,
-	                                     repository);
+	sr_error_t err;
+
+	err = nlifd_iface_get_stats(session, *parent, store);
+	if (err != SR_ERR_OK) {
+		srplug_node_warn(*parent,
+		                 "cannot fill in interface statistics: %s",
+		                 sr_strerror(err));
+		return err;
+	}
+
+	srplug_node_debug(*parent, "interface statistics filled in");
+
+	return SR_ERR_OK;
 }
 
 /* Operational state subscription. */
 static const struct srplug_oper_sub nlifd_oper_sub = {
-	.module = NLIFD_IETF_IFACE_YANG_MODULE,
-	                NLIFD_IETF_IFACE_YANG_LIST_PATH "/statistics",
-	                NULL,
-	                nlifd_on_iface_get_admin_status,
-	                0,
-	                SR_SUBSCR_DEFAULT),
+	.module  = NLIFD_IETF_IFACE_YANG_MODULE,
+	.xpath   =       NLIFD_IETF_IFACE_YANG_LIST_PATH "/statistics",
+	.feature =      NULL,
+	.on_get  =      nlifd_on_iface_get_stats,
+	.options =      0
 };
-#endif
 
 /******************************************************************************
  * Interfaces configuration handling.
@@ -752,16 +847,16 @@ static sr_error_t
 nlifd_iface_change_enabled(const struct lyd_node * leaf,
                            sr_change_oper_t        oper,
                            const char *            old,
-                           void *                  repository)
+                           void *                  store)
 {
 	srplug_assert(srepo_dat_node_type(leaf) & LYD_NODE_TERM);
-	nlif_repo_assert((const struct nlif_repo *)repository);
+	nlif_store_assert((const struct nlif_store *)store);
 
 	struct nlif_iface * iface;
 	bool                val;
 	int                 ret;
 
-	iface = nlifd_iface_from_node(leaf, repository);
+	iface = nlifd_iface_from_node(leaf, store);
 	if (!iface) {
 		srplug_node_notice(leaf,
 		                   "cannot change interface: "
@@ -809,16 +904,16 @@ static sr_error_t
 nlifd_iface_restore_enabled(const struct lyd_node * leaf,
                             sr_change_oper_t        oper,
                             const char *            old,
-                            void *                  repository)
+                            void *                  store)
 {
 	srplug_assert(srepo_dat_node_type(leaf) & LYD_NODE_TERM);
-	nlif_repo_assert((const struct nlif_repo *)repository);
+	nlif_store_assert((const struct nlif_store *)store);
 
 	struct nlif_iface * iface;
 	bool                val;
 	int                 ret;
 
-	iface = nlifd_iface_from_node(leaf, repository);
+	iface = nlifd_iface_from_node(leaf, store);
 	if (!iface) {
 		srplug_node_err(leaf,
 		                "cannot restore interface: no such interface");
@@ -866,17 +961,17 @@ static sr_error_t
 nlifd_iface_change_type(const struct lyd_node * leaf,
                         sr_change_oper_t        oper,
                         const char *            old,
-                        void *                  repository)
+                        void *                  store)
 {
 	srplug_assert(srepo_dat_node_type(leaf) & LYD_NODE_TERM);
-	nlif_repo_assert((const struct nlif_repo *)repository);
+	nlif_store_assert((const struct nlif_store *)store);
 
 	struct nlif_iface * iface;
 	const char *        val = srepo_dat_node_as_str(leaf);
 	const char *        type;
 	int                 ret;
 
-	iface = nlifd_iface_from_node(leaf, repository);
+	iface = nlifd_iface_from_node(leaf, store);
 	if (!iface) {
 		srplug_node_notice(leaf,
 		                   "cannot change interface: "
@@ -928,10 +1023,10 @@ static sr_error_t
 nlifd_iface_restore_type(const struct lyd_node * leaf,
                          sr_change_oper_t        oper __unused,
                          const char *            old __unused,
-                         void *                  repository __unused)
+                         void *                  store __unused)
 {
 	srplug_assert(srepo_dat_node_type(leaf) & LYD_NODE_TERM);
-	nlif_repo_assert((const struct nlif_repo *)repository);
+	nlif_store_assert((const struct nlif_store *)store);
 
 	srplug_node_debug(leaf, "interface restored");
 
@@ -949,10 +1044,15 @@ static const struct srplug_change_hndlr nlifd_iface_restore_hndlrs[] = {
 };
 
 static sr_error_t
-nlifd_iface_process_aborts(sr_session_ctx_t * session,
-                           const char *       xpath,
-                           struct nlif_repo * repository)
+nlifd_iface_process_aborts(sr_session_ctx_t *  session,
+                           const char *        xpath,
+                           struct nlif_store * store)
 {
+	srplug_assert(session);
+	srplug_assert(xpath);
+	srplug_assert(xpath[0]);
+	nlif_store_assert(store);
+
 	int                            ret;
 	const struct nlif_store_hndl * hndl;
 	struct nlif_iface *            iface;
@@ -963,13 +1063,13 @@ nlifd_iface_process_aborts(sr_session_ctx_t * session,
 		xpath,
 		nlifd_iface_restore_hndlrs,
 		stroll_array_nr(nlifd_iface_restore_hndlrs),
-		repository);
+		store);
 
 	/*
 	 *  ...unless Sysrepo internals fail to retrieve subscription events.
 	 * Keep trying to restore as many interfaces as we can however.
 	 */
-	nlif_store_foreach_iface(nlif_repo_store(repository), hndl, iface) {
+	nlif_store_foreach_iface(store, hndl, iface) {
 		int err;
 
 		err = nlif_iface_apply(iface);
@@ -995,10 +1095,15 @@ nlifd_iface_process_aborts(sr_session_ctx_t * session,
 }
 
 static sr_error_t
-nlifd_iface_process_changes(sr_session_ctx_t * session,
-                            const char *       xpath,
-                            struct nlif_repo * repository)
+nlifd_iface_process_changes(sr_session_ctx_t *  session,
+                            const char *        xpath,
+                            struct nlif_store * store)
 {
+	srplug_assert(session);
+	srplug_assert(xpath);
+	srplug_assert(xpath[0]);
+	nlif_store_assert(store);
+
 	int ret;
 
 	ret = srplug_process_child_changes(
@@ -1006,14 +1111,12 @@ nlifd_iface_process_changes(sr_session_ctx_t * session,
 		xpath,
 		nlifd_iface_change_hndlrs,
 		stroll_array_nr(nlifd_iface_change_hndlrs),
-		repository);
+		store);
 	if (ret == SR_ERR_OK) {
 		const struct nlif_store_hndl * hndl;
 		struct nlif_iface *            iface;
 
-		nlif_store_foreach_iface(nlif_repo_store(repository),
-		                         hndl,
-		                         iface) {
+		nlif_store_foreach_iface(store, hndl, iface) {
 			ret = nlif_iface_apply(iface);
 			if (ret < 0) {
 				srplug_path_notice(
@@ -1024,7 +1127,7 @@ nlifd_iface_process_changes(sr_session_ctx_t * session,
 					strerror(-ret));
 				nlifd_iface_process_aborts(session,
 				                           xpath,
-				                           repository);
+				                           store);
 				return nlifd_iface_error(ret);
 			}
 
@@ -1049,24 +1152,24 @@ nlifd_on_iface_change(sr_session_ctx_t * session,
                       const char *       xpath,
                       sr_event_t         event,
                       uint32_t           request_id __unused,
-                      void *             repository)
+                      void *             store)
 {
 	srplug_assert(session);
 	srplug_assert(xpath);
 	srplug_assert(xpath[0]);
-	nlif_repo_assert((const struct nlif_repo *)repository);
+	nlif_store_assert((const struct nlif_store *)store);
 
 	sr_error_t   ret;
 	const char * act;
 
 	switch (event) {
 	case SR_EV_ENABLED:
-		ret = nlifd_iface_process_changes(session, xpath, repository);
+		ret = nlifd_iface_process_changes(session, xpath, store);
 		act = "load";
 		break;
 
 	case SR_EV_CHANGE:
-		ret = nlifd_iface_process_changes(session, xpath, repository);
+		ret = nlifd_iface_process_changes(session, xpath, store);
 		act = "apply";
 		break;
 
@@ -1075,7 +1178,7 @@ nlifd_on_iface_change(sr_session_ctx_t * session,
 		return SR_ERR_OK;
 
 	case SR_EV_ABORT:
-		ret = nlifd_iface_process_aborts(session, xpath, repository);
+		ret = nlifd_iface_process_aborts(session, xpath, store);
 		act = "abort";
 		break;
 
@@ -1157,6 +1260,10 @@ nlifd_push_oper(struct nlif_obsrv_subscriber * subscriber,
 
 	ret = srepo_apply_changes(sess);
 	if (ret == SR_ERR_OK) {
+#if defined(CONFIG_NLIF_DEBUG)
+		path[len] = '\0';
+		srplug_path_debug(path, "interface status refreshed");
+#endif /* defined(CONFIG_NLIF_DEBUG) */
 		srepo_free(path);
 		return;
 	}
@@ -1425,7 +1532,7 @@ nlifd_load(struct nlifd * daemon)
 
 	ret = srplug_daemon_change_subscribe(&daemon->super,
 	                                     &nlifd_change_sub,
-	                                     daemon);
+	                                     &daemon->store);
 	if (ret != SR_ERR_OK)
 		goto release;
 
@@ -1433,13 +1540,11 @@ nlifd_load(struct nlifd * daemon)
 	if (ret != SR_ERR_OK)
 		goto release;
 
-#if 0
 	ret = srplug_daemon_oper_subscribe(&daemon->super,
 	                                   &nlifd_oper_sub,
-	                                   daemon);
+	                                   &daemon->store);
 	if (ret)
 		goto release;
-#endif
 
 	srplug_release_context(sess);
 

@@ -44,8 +44,18 @@ nlif_gate_destroy_setlink_req(struct rt_link_setlink_req * request)
 }
 
 extern int
-nlif_gate_setlink(const struct nlif_gate *     gate,
-                  struct rt_link_setlink_req * request);
+nlif_gate_load_link_stats(const struct nlif_gate *       gate,
+                          unsigned int                   index,
+                          struct rt_link_getstats_rsp ** stats);
+
+static inline
+void
+nlif_gate_destroy_link_stats(struct rt_link_getstats_rsp * statistics)
+{
+	nlif_assert(statistics);
+
+	rt_link_getstats_rsp_free(statistics);
+}
 
 extern int
 nlif_gate_load_link_byidx(const struct nlif_gate *      gate,
@@ -56,6 +66,10 @@ extern int
 nlif_gate_load_link_byname(const struct nlif_gate *      gate,
                            const char *                  name,
                            struct rt_link_getlink_rsp ** link);
+
+extern int
+nlif_gate_setlink(const struct nlif_gate *     gate,
+                  struct rt_link_setlink_req * request);
 
 typedef int nlif_gate_on_link_loaded_fn(const struct nlif_gate *,
                                         struct rt_link_getlink_rsp *,

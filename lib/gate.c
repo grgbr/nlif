@@ -90,28 +90,6 @@ nlif_gate_getlink(const struct nlif_gate *      gate,
 }
 
 int
-nlif_gate_setlink(const struct nlif_gate *     gate,
-                  struct rt_link_setlink_req * request)
-{
-	nlif_gate_assert(gate);
-	nlif_assert(request);
-	nlif_assert(request->_hdr.ifi_index);
-
-	int err;
-
-	/* Set interface data. */
-	err = rt_link_setlink(gate->sock, request);
-	if (!err)
-		return 0;
-
-	nlif_notice("[%d]: cannot set link: %s.",
-	            request->_hdr.ifi_index,
-	            gate->sock->err.msg);
-
-	return nlif_ynl_err(&gate->sock->err);
-}
-
-int
 nlif_gate_load_link_byidx(const struct nlif_gate *      gate,
                           unsigned int                  index,
                           struct rt_link_getlink_rsp ** link)
@@ -171,6 +149,72 @@ free:
 	rt_link_getlink_req_free(req);
 
 	return ret;
+}
+
+int
+nlif_gate_load_link_stats(const struct nlif_gate *       gate,
+                          unsigned int                   index,
+                          struct rt_link_getstats_rsp ** stats)
+{
+	nlif_gate_assert(gate);
+	nlif_assert(!nlif_link_validate_index(index));
+	nlif_assert(stats);
+
+	struct rt_link_getstats_req * req;
+	struct rt_link_getstats_rsp * rsp;
+	int                           ret;
+
+	req = rt_link_getstats_req_alloc();
+	if (!req)
+		abort();
+
+	/*
+	 * Search link by its ifindex and request struct rtnl_link_stats64 based
+	 * counters.
+	 */
+	req->_hdr.ifindex = index;
+	req->_hdr.filter_mask = IFLA_STATS_LINK_64;
+
+	/* Acquire link statistics. */
+	rsp = rt_link_getstats(gate->sock, req);
+	if (!rsp) {
+		nlif_notice("cannot fetch link statistics: %s.",
+		            gate->sock->err.msg);
+		ret = nlif_ynl_err(&gate->sock->err);
+		goto free;
+	}
+
+	nlif_assert(rsp->_len.link_64 >= sizeof(*rsp->link_64));
+
+	*stats = rsp;
+	ret = 0;
+
+free:
+	rt_link_getstats_req_free(req);
+
+	return ret;
+}
+
+int
+nlif_gate_setlink(const struct nlif_gate *     gate,
+                  struct rt_link_setlink_req * request)
+{
+	nlif_gate_assert(gate);
+	nlif_assert(request);
+	nlif_assert(request->_hdr.ifi_index);
+
+	int err;
+
+	/* Set interface data. */
+	err = rt_link_setlink(gate->sock, request);
+	if (!err)
+		return 0;
+
+	nlif_notice("[%d]: cannot set link: %s.",
+	            request->_hdr.ifi_index,
+	            gate->sock->err.msg);
+
+	return nlif_ynl_err(&gate->sock->err);
 }
 
 int
