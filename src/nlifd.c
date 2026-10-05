@@ -12,123 +12,6 @@
  ******************************************************************************/
 
 static sr_error_t
-srepo_ly_error(LY_ERR error)
-{
-	switch (error) {
-	case LY_SUCCESS:
-		return SR_ERR_OK;
-	case LY_EMEM:
-		return SR_ERR_NO_MEMORY;
-	case LY_ESYS:
-		return SR_ERR_SYS;
-	case LY_EINVAL:
-		return SR_ERR_INVAL_ARG;
-	case LY_EEXIST:
-		return SR_ERR_EXISTS;
-	case LY_ENOTFOUND:
-		return SR_ERR_NOT_FOUND;
-	case LY_EVALID:
-		return SR_ERR_VALIDATION_FAILED;
-	case LY_EDENIED:
-		return SR_ERR_OPERATION_FAILED;
-	case LY_EINT:
-	case LY_EINCOMPLETE:
-	case LY_ERECOMPILE:
-	case LY_ENOT:
-	case LY_EOTHER:
-	case LY_EPLUGIN:
-		return SR_ERR_LY;
-	default:
-		srepo_assert(0);
-		return SR_ERR_LY;
-	}
-}
-
-static sr_error_t
-srepo_dat_set(sr_session_ctx_t * session,
-              const char *       path,
-              const char *       value,
-              const char *       origin,
-              uint32_t           flags)
-{
-	srepo_assert(session);
-	srepo_assert(srepo_xpath_validate(path) > 0);
-	srepo_assert(value);
-	srepo_assert(!(flags & ~(SR_EDIT_DEFAULT |
-	                         SR_EDIT_NON_RECURSIVE |
-	                         SR_EDIT_STRICT |
-	                         SR_EDIT_ISOLATE)));
-
-	sr_error_t ret;
-
-	ret = sr_set_item_str(session, path, value, origin, flags);
-	if (ret == SR_ERR_OK)
-		return SR_ERR_OK;
-
-	srepo_assert(ret != SR_ERR_INVAL_ARG);
-	if (ret == SR_ERR_NO_MEMORY)
-		srepo_abort();
-
-	return ret;
-}
-
-static sr_error_t
-srepo_dat_vsetf(sr_session_ctx_t * session,
-                const char *       path,
-                const char *       origin,
-                uint32_t           flags,
-                const char *       format,
-                va_list            args)
-{
-	srepo_assert(session);
-	srepo_assert(srepo_xpath_validate(path) > 0);
-	srepo_assert(!(flags & ~(SR_EDIT_DEFAULT |
-	                         SR_EDIT_NON_RECURSIVE |
-	                         SR_EDIT_STRICT |
-	                         SR_EDIT_ISOLATE)));
-	srepo_assert(format);
-
-	char * str;
-	int    ret;
-
-	ret = srepo_vasprintf(&str, format, args);
-	if (ret < 0)
-		return srepo_ly_error(ret);
-
-	ret = srepo_dat_set(session, path, str, origin, flags);
-
-	srepo_free(str);
-
-	return ret;
-}
-
-static inline sr_error_t
-srepo_dat_setf(sr_session_ctx_t * session,
-               const char *       path,
-               const char *       origin,
-               uint32_t           flags,
-               const char *       format,
-               ...)
-{
-	srepo_assert(session);
-	srepo_assert(srepo_xpath_validate(path) > 0);
-	srepo_assert(!(flags & ~(SR_EDIT_DEFAULT |
-	                         SR_EDIT_NON_RECURSIVE |
-	                         SR_EDIT_STRICT |
-	                         SR_EDIT_ISOLATE)));
-	srepo_assert(format);
-
-	sr_error_t ret;
-	va_list    args;
-
-	va_start(args, format);
-	ret = srepo_dat_vsetf(session, path, origin, flags, format, args);
-	va_end(args);
-
-	return ret;
-}
-
-static sr_error_t
 srepo_discard_oper_changes(sr_session_ctx_t * session, const char * module)
 {
 	srepo_assert(session);
@@ -303,7 +186,7 @@ nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
 
 	/*
 	 * TODO: remove call to srepo_xpath_validate() since xpath should come
-	 * from returned value of srepo_dat_path().
+	 * from returned value of srepo_dat_node_path().
 	 */
 	if (srepo_xpath_validate(xpath) < 0) {
 		msg = "invalid interface path";
@@ -492,11 +375,12 @@ nlifd_iface_fill_admstate(sr_session_ctx_t *        session,
 
 	nlifd_iface_concat_leaf_path(path, length, "/admin-status");
 
-	return srepo_dat_set(session,
-	                     path,
-	                     nlif_iface_admstate(interface) ? "up" : "down",
-	                     "ietf-origin:system",
-	                     SR_EDIT_DEFAULT);
+	return srepo_dat_change_bypath(session,
+	                               path,
+	                               nlif_iface_admstate(interface) ? "up"
+	                                                              : "down",
+	                               "ietf-origin:system",
+	                               SR_EDIT_DEFAULT);
 }
 
 static sr_error_t
@@ -516,11 +400,11 @@ nlifd_iface_fill_operstate(sr_session_ctx_t *        session,
 
 	nlifd_iface_concat_leaf_path(path, length, "/oper-status");
 
-	return srepo_dat_set(session,
-	                     path,
-	                     st,
-	                     "ietf-origin:system",
-	                     SR_EDIT_DEFAULT);
+	return srepo_dat_change_bypath(session,
+	                               path,
+	                               st,
+	                               "ietf-origin:system",
+	                               SR_EDIT_DEFAULT);
 }
 
 static sr_error_t
@@ -537,12 +421,12 @@ nlifd_iface_fill_index(sr_session_ctx_t *        session,
 
 	nlifd_iface_concat_leaf_path(path, length, "/if-index");
 
-	return srepo_dat_setf(session,
-	                      path,
-	                      "ietf-origin:system",
-	                      SR_EDIT_DEFAULT,
-	                      "%u",
-	                      nlif_iface_index(interface));
+	return srepo_dat_changef_bypath(session,
+	                                path,
+	                                "ietf-origin:system",
+	                                SR_EDIT_DEFAULT,
+	                                "%u",
+	                                nlif_iface_index(interface));
 }
 
 static sr_error_t
@@ -561,12 +445,12 @@ nlifd_iface_fill_hwaddr(sr_session_ctx_t *        session,
 
 	nlifd_iface_concat_leaf_path(path, length, "/phys-address");
 
-	return srepo_dat_set(session,
-	                     path,
-	                     nlif_link_hwaddr_str(nlif_iface_hwaddr(interface),
-	                                          str),
-	                     "ietf-origin:system",
-	                     SR_EDIT_DEFAULT);
+	return srepo_dat_change_bypath(
+		session,
+		path,
+		nlif_link_hwaddr_str(nlif_iface_hwaddr(interface), str),
+		"ietf-origin:system",
+		SR_EDIT_DEFAULT);
 }
 
 static sr_error_t
