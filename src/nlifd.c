@@ -7,31 +7,141 @@
 #include <sysrepo/xpath.h>
 #include <sysexits.h>
 
-/******************************************************************************
- * Srepo wrappers.
- ******************************************************************************/
+#define NLIFD_IETF_IFACE_YANG_MODULE \
+	"ietf-interfaces"
 
-static sr_error_t
-srepo_discard_oper_changes(sr_session_ctx_t * session, const char * module)
-{
-	srepo_assert(session);
-	srepo_assert(!module || module[0]);
+#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
+	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces"
 
-	sr_error_t ret;
+#define NLIFD_IETF_IFACE_YANG_LIST_PATH \
+	NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface"
+#define NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN \
+	(sizeof(NLIFD_IETF_IFACE_YANG_LIST_PATH) - 1)
 
-	ret = sr_discard_oper_changes(session, module, 0);
-	if (ret == SR_ERR_OK)
-		return SR_ERR_OK;
+#define nlifd_assert_paths() \
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN, \
+	              "empty ietf-interfaces interface list xpath length"); \
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE, \
+	              "ietf-interfaces interface list xpath length too long")
 
-	if (ret == SR_ERR_NO_MEMORY)
-		srepo_abort();
+static struct srplug_feat
+nlifd_arbitrary_names_feat = SRPLUG_FEAT_SETUP("arbitrary-names");
 
-	return ret;
-}
+static struct srplug_feat
+nlifd_pre_provisioning_feat = SRPLUG_FEAT_SETUP("pre-provisioning");
+
+static struct srplug_feat
+nlifd_if_mib_feat = SRPLUG_FEAT_SETUP("if-mib");
 
 /******************************************************************************
  * Various helpers.
  ******************************************************************************/
+
+#define nlifd_log(_svrt, _fmt, ...) \
+	srepo_log(_svrt, "", _fmt, ## __VA_ARGS__)
+
+#define nlifd_err(_fmt, ...) \
+	nlifd_log(ELOG_ERR_SEVERITY, _fmt, ## __VA_ARGS__)
+
+#define nlifd_warn(_fmt, ...) \
+	nlifd_log(ELOG_WARNING_SEVERITY, _fmt, ## __VA_ARGS__)
+
+#define nlifd_notice(_fmt, ...) \
+	nlifd_log(ELOG_NOTICE_SEVERITY, _fmt, ## __VA_ARGS__)
+
+#define nlifd_info(_fmt, ...) \
+	nlifd_log(ELOG_INFO_SEVERITY, _fmt, ## __VA_ARGS__)
+
+#define nlifd_debug(_fmt, ...) \
+	nlifd_log(ELOG_DEBUG_SEVERITY, _fmt, ## __VA_ARGS__)
+
+
+#define nlifd_log_xpath(_sess, _xpath, _svrt, _fmt, ...) \
+	srepo_xpath_log_sess(_sess, \
+	                     _xpath, \
+	                     _svrt, \
+	                     "", \
+	                     _fmt, \
+	                     ## __VA_ARGS__)
+
+#define nlifd_xpath_err(_sess, _xpath, _fmt, ...) \
+	nlifd_log_xpath(_sess, \
+	                _xpath, \
+	                ELOG_ERR_SEVERITY, \
+	                _fmt, \
+	                ## __VA_ARGS__)
+
+#define nlifd_xpath_warn(_sess, _xpath, _fmt, ...) \
+	nlifd_log_xpath(_sess, \
+	                _xpath, \
+	                ELOG_WARNING_SEVERITY, \
+	                _fmt, \
+	                ## __VA_ARGS__)
+
+#define nlifd_xpath_notice(_sess, _xpath, _fmt, ...) \
+	nlifd_log_xpath(_sess, \
+	                _xpath, \
+	                ELOG_NOTICE_SEVERITY, \
+	                _fmt, \
+	                ## __VA_ARGS__)
+
+#define nlifd_xpath_info(_sess, _xpath, _fmt, ...) \
+	nlifd_log_xpath(_sess, \
+	                _xpath, \
+	                ELOG_INFO_SEVERITY, \
+	                _fmt, \
+	                ## __VA_ARGS__)
+
+#define nlifd_xpath_debug(_sess, _xpath, _fmt, ...) \
+	nlifd_log_xpath(_sess, \
+	                _xpath, \
+	                ELOG_DEBUG_SEVERITY, \
+	                _fmt, \
+	                ## __VA_ARGS__)
+
+
+#define nlifd_log_node(_sess, _node, _svrt, _fmt, ...) \
+	srepo_dat_log_sess_node(_sess, \
+	                        _node, \
+	                        _svrt, \
+	                        "", \
+	                        _fmt, \
+	                        ## __VA_ARGS__)
+
+#define nlifd_node_err(_sess, _node, _fmt, ...) \
+	nlifd_log_node(_sess, \
+	               _node, \
+	               ELOG_ERR_SEVERITY, \
+	               _fmt, \
+	               ## __VA_ARGS__)
+
+#define nlifd_node_warn(_sess, _node, _fmt, ...) \
+	nlifd_log_node(_sess, \
+	               _node, \
+	               ELOG_WARNING_SEVERITY, \
+	               _fmt, \
+	               ## __VA_ARGS__)
+
+#define nlifd_node_notice(_sess, _node, _fmt, ...) \
+	nlifd_log_node(_sess, \
+	               _node, \
+	               ELOG_NOTICE_SEVERITY, \
+	               _fmt, \
+	               ## __VA_ARGS__)
+
+#define nlifd_node_info(_sess, _node, _fmt, ...) \
+	nlifd_log_node(_sess, \
+	               _node, \
+	               ELOG_INFO_SEVERITY, \
+	               _fmt, \
+	               ## __VA_ARGS__)
+
+#define nlifd_node_debug(_sess, _node, _fmt, ...) \
+	nlifd_log_node(_sess, \
+	               _node, \
+	               ELOG_DEBUG_SEVERITY, \
+	               _fmt, \
+	               ## __VA_ARGS__)
 
 static sr_error_t
 nlifd_iface_error(int error)
@@ -71,27 +181,13 @@ nlifd_iface_error(int error)
 }
 
 /******************************************************************************
- * XPATH utilities.
+ * XPATH and features handling.
  ******************************************************************************/
-
-#define NLIFD_IETF_IFACE_YANG_MODULE \
-	"ietf-interfaces"
-
-#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
-	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces"
-
-#define NLIFD_IETF_IFACE_YANG_LIST_PATH \
-	NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface"
-#define NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN \
-	(sizeof(NLIFD_IETF_IFACE_YANG_LIST_PATH) - 1)
 
 static char *
 nlifd_iface_create_xpath_base(void)
 {
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
-	              "empty ietf-interfaces interface list xpath length");
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE,
-	              "ietf-interfaces interface list xpath length too long");
+	nlifd_assert_paths();
 
 	return srepo_xpath_create(NLIFD_IETF_IFACE_YANG_LIST_PATH,
 	                          NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
@@ -100,30 +196,14 @@ nlifd_iface_create_xpath_base(void)
 static ssize_t
 nlifd_iface_fill_path_name(char * path, const char * name)
 {
-	srplug_assert(path);
-	srplug_assert(nlif_iface_validate_name(name) > 0);
-
-	ssize_t len;
-
-	len = srepo_xpath_printf(path,
-	                         NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
-	                         "[name='%s']",
-	                         name);
-	/* Interface name is no longer than IFNAMSIZ, i.e. 16 characters... */
-	srplug_assert((size_t)len < SREPO_XPATH_SIZE);
-
-	return len;
+	return srepo_xpath_printf(
+		path, NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN, "[name='%s']", name);
 }
 
 static ssize_t
 nlifd_iface_create_path(char ** path, struct nlif_iface * interface)
 {
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
-	              "empty ietf-interfaces interface list xpath length");
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE,
-	              "ietf-interfaces interface list xpath length too long");
-	srplug_assert(path);
-	nlif_iface_assert(interface);
+	nlifd_assert_paths();
 
 	ssize_t      ret;
 	const char * name;
@@ -132,13 +212,8 @@ nlifd_iface_create_path(char ** path, struct nlif_iface * interface)
 	if (ret)
 		return ret;
 
-	ret = srepo_xpath_createf(path,
-	                          NLIFD_IETF_IFACE_YANG_LIST_PATH "[name='%s']",
-	                          name);
-	/* Interface name is no longer than IFNAMSIZ, i.e. 16 characters... */
-	srplug_assert((size_t)ret < SREPO_XPATH_SIZE);
-
-	return ret;
+	return srepo_xpath_createf(
+		path, NLIFD_IETF_IFACE_YANG_LIST_PATH "[name='%s']", name);
 }
 
 static void
@@ -147,18 +222,7 @@ _nlifd_iface_concat_leaf_path(char *       path,
                               const char * string,
                               size_t       slen)
 {
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
-	              "empty ietf-interfaces interface list xpath length");
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE,
-	              "ietf-interfaces interface list xpath length too long");
-	srepo_assert(path);
-	srepo_assert(plen > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
-	srepo_assert(plen < SREPO_XPATH_SIZE);
-	srepo_assert(string);
-	srepo_assert(slen);
-	srepo_assert(slen < SREPO_XPATH_SIZE);
-	srepo_assert(strlen(string) == slen);
-	srepo_assert((plen + slen) < SREPO_XPATH_SIZE);
+	nlifd_assert_paths();
 
 	memcpy(&path[plen], string, slen);
 	path[plen + slen] = '\0';
@@ -173,125 +237,60 @@ _nlifd_iface_concat_leaf_path(char *       path,
 		             sizeof(_str) - 1, \
 		             "array expected"))
 
-static char *
-nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
+static struct nlif_iface *
+nlifd_iface_from_node(const sr_session_ctx_t *  session,
+                      const struct lyd_node *   node,
+                      const struct nlif_store * store)
 {
-	srplug_assert(xpath);
-	srplug_assert(name);
-
+	char *         path;
 	sr_xpath_ctx_t ctx;
-	const char *   str;
-	size_t         len;
+	const char *   name;
 	const char *   msg;
+	ssize_t        len;
 
-	/*
-	 * TODO: remove call to srepo_xpath_validate() since xpath should come
-	 * from returned value of srepo_dat_node_path().
-	 */
-	if (srepo_xpath_validate(xpath) < 0) {
-		msg = "invalid interface path";
+	msg = "invalid interface node path";
+	path = srepo_dat_node_path(node);
+	if (!path)
 		goto err;
-	}
-	str = srepo_xpath_key_value(xpath, "interface", "name", &ctx);
-	if (!str) {
-		msg = "invalid interface node path";
+	name = srepo_xpath_key_value(path, "interface", "name", &ctx);
+	if (!name)
 		goto err;
-	}
 
-	len = nlif_iface_validate_name(str);
+	len = nlif_iface_validate_name(name);
 	if (len > 0) {
-		srplug_assert(len < IFNAMSIZ);
+		struct nlif_iface * iface;
 
-		memcpy(name, str, len);
-		name[len] = '\0';
+		iface = nlif_store_find_iface_byname(store, name);
+		if (iface) {
+			srepo_free(path);
+			return iface;
+		}
 
-		return name;
+		msg = "no such interface";
+		goto recover;
 	}
 
 	switch (len) {
 	case -ENODATA:
 		msg = "missing interface name";
 		break;
+
 	case -ENAMETOOLONG:
 		msg = "interface name too long";
 		break;
+
 	default:
 		srplug_assert(0);
 		msg = "unknown error";
 	}
 
-err:
+recover:
 	srepo_xpath_recover(&ctx);
-	srplug_path_debug(xpath, "%s", msg);
+err:
+	nlifd_xpath_info(session, path, "%s", msg);
+	srepo_free(path);
 
 	return NULL;
-}
-
-/* Keep this for now. Just in case... */
-#if 0
-static struct nlif_iface *
-nlifd_iface_from_xpath(const char * xpath, const struct nlif_store * store)
-{
-	srplug_assert(xpath);
-	srplug_assert(xpath[0]);
-	nlif_store_assert(store);
-
-	char *              pth;
-	char                name[IFNAMSIZ];
-	char *              str;
-	struct nlif_iface * iface;
-
-	pth = srplug_strdup(xpath);
-	str = nlifd_iface_name_from_xpath(pth, name);
-	srplug_free(pth);
-	if (!str)
-		return NULL;
-
-	iface = nlif_store_find_iface_byname(store, name);
-	if (!iface)
-		srplug_path_info(xpath, "'%s': no such interface", name);
-
-	return iface;
-}
-#endif
-
-static const char *
-nlifd_iface_name_from_node(const struct lyd_node * node,
-                           char                    name[IFNAMSIZ])
-{
-	srplug_assert(node);
-	srplug_assert(name);
-
-	char *       path;
-	const char * str;
-
-	path = srplug_dat_path(node);
-	str = nlifd_iface_name_from_xpath(path, name);
-	srplug_free(path);
-
-	return str;
-}
-
-static struct nlif_iface *
-nlifd_iface_from_node(const struct lyd_node *   node,
-                      const struct nlif_store * store)
-{
-	srplug_assert(node);
-	srplug_assert((srepo_dat_node_type(node) & LYD_NODE_TERM) ||
-	              (srepo_dat_node_type(node) == LYS_LIST));
-	nlif_store_assert(store);
-
-	char                name[IFNAMSIZ];
-	struct nlif_iface * iface;
-
-	if (!nlifd_iface_name_from_node(node, name))
-		return NULL;
-
-	iface = nlif_store_find_iface_byname(store, name);
-	if (!iface)
-		srplug_node_info(node, "'%s': no such interface", name);
-
-	return iface;
 }
 
 /******************************************************************************
@@ -343,19 +342,6 @@ nlifd_iface_coherent_type_str(struct nlif_iface * interface, const char ** type)
 
 	return 0;
 }
-
-/******************************************************************************
- * Features handling.
- ******************************************************************************/
-
-static struct srplug_feat
-nlifd_arbitrary_names_feat = SRPLUG_FEAT_SETUP("arbitrary-names");
-
-static struct srplug_feat
-nlifd_pre_provisioning_feat = SRPLUG_FEAT_SETUP("pre-provisioning");
-
-static struct srplug_feat
-nlifd_if_mib_feat = SRPLUG_FEAT_SETUP("if-mib");
 
 /******************************************************************************
  * Interfaces operational data handling.
@@ -500,7 +486,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 	int                      ret;
 	struct rtnl_link_stats64 stats;
 
-	iface = nlifd_iface_from_node(container, store);
+	iface = nlifd_iface_from_node(session, container, store);
 	if (!iface)
 		return SR_ERR_NOT_FOUND;
 
@@ -514,7 +500,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 
 	/* TODO: discontinuity-time */
 
-	ret = srplug_dat_create_leaf_printf(container,
+	ret = srepo_dat_create_leaf_printf(container,
 	                                    "statistics/in-octets",
 	                                    NULL,
 	                                    "%" PRIu64,
@@ -526,7 +512,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 	/* TODO: in-broadcast-pkts */
 	/* TODO: in-multicast-pkts */
 
-	ret = srplug_dat_create_leaf_printf(container,
+	ret = srepo_dat_create_leaf_printf(container,
 	                                    "statistics/in-discards",
 	                                    NULL,
 	                                    "%" PRIu64,
@@ -534,7 +520,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 	if (ret != SR_ERR_OK)
 		return ret;
 
-	ret = srplug_dat_create_leaf_printf(container,
+	ret = srepo_dat_create_leaf_printf(container,
 	                                    "statistics/in-errors",
 	                                    NULL,
 	                                    "%" PRIu64,
@@ -544,7 +530,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 
 	/* TODO: in-unknown-protos */
 
-	ret = srplug_dat_create_leaf_printf(container,
+	ret = srepo_dat_create_leaf_printf(container,
 	                                    "statistics/out-octets",
 	                                    NULL,
 	                                    "%" PRIu64,
@@ -556,7 +542,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 	/* TODO: out-broadcast-pkts */
 	/* TODO: out-multicast-pkts */
 
-	ret = srplug_dat_create_leaf_printf(container,
+	ret = srepo_dat_create_leaf_printf(container,
 	                                    "statistics/out-discards",
 	                                    NULL,
 	                                    "%" PRIu64,
@@ -564,7 +550,7 @@ nlifd_iface_get_stats(sr_session_ctx_t *        session,
 	if (ret != SR_ERR_OK)
 		return ret;
 
-	ret = srplug_dat_create_leaf_printf(container,
+	ret = srepo_dat_create_leaf_printf(container,
 	                                    "statistics/out-errors",
 	                                    NULL,
 	                                    "%" PRIu64,
@@ -592,13 +578,14 @@ nlifd_on_iface_get_stats(sr_session_ctx_t * session,
 
 	err = nlifd_iface_get_stats(session, *parent, store);
 	if (err != SR_ERR_OK) {
-		srplug_node_warn(*parent,
-		                 "cannot fill in interface statistics: %s",
-		                 sr_strerror(err));
+		nlifd_node_warn(session,
+		                *parent,
+		                "cannot fill in interface statistics: %s",
+		                srepo_errstr(err));
 		return err;
 	}
 
-	srplug_node_debug(*parent, "interface statistics filled in");
+	nlifd_node_debug(session, *parent, "interface statistics filled in");
 
 	return SR_ERR_OK;
 }
@@ -617,11 +604,13 @@ static const struct srplug_oper_sub nlifd_oper_sub = {
  ******************************************************************************/
 
 static sr_error_t
-nlifd_iface_new_entry(const struct ly_ctx * context,
-                      struct lyd_node *     container,
-                      struct nlif_iface *   interface,
-                      struct lyd_node **    entry)
+nlifd_iface_new_entry(const sr_session_ctx_t * session,
+                      const struct ly_ctx *    context,
+                      struct lyd_node *        container,
+                      struct nlif_iface *      interface,
+                      struct lyd_node **       entry)
 {
+	srplug_assert(session);
 	srplug_assert(context);
 	srplug_assert(container);
 	srplug_assert(interface);
@@ -631,27 +620,26 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 	const char *      str;
 	int               ret;
 
-	ret = srplug_dat_create_list_keyent(context,
-	                                    container,
-	                                    "interface",
-	                                    "name",
-	                                    nlif_iface_name(interface),
-	                                    &ent);
+	ret = srepo_dat_create_list_keyent(context,
+	                                   container,
+	                                   "interface",
+	                                   "name",
+	                                   nlif_iface_name(interface),
+	                                   &ent);
 	if (ret != SR_ERR_OK)
 		return ret;
 
 	/* Create default nodes as defined by the interface YANG model. */
-	ret = srplug_dat_populate_defaults(ent, LYD_IMPLICIT_NO_STATE, NULL);
+	ret = srepo_dat_new_dflt_nodes(ent, LYD_IMPLICIT_NO_STATE, NULL);
 	if (ret != SR_ERR_OK)
 		return ret;
 
 	str = nlifd_iface_type_str(nlif_iface_type(interface),
 	                           nlif_iface_kind(interface));
-	if (!str) {
-		srplug_node_info(ent, "unsupported interface type");
+	if (!str)
 		return SR_ERR_UNSUPPORTED;
-	}
-	ret = srplug_dat_create_leaf(ent, "type", str, NULL);
+
+	ret = srepo_dat_create_leaf(ent, "type", str, NULL);
 	if (ret != SR_ERR_OK)
 		return ret;
 
@@ -662,7 +650,8 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 }
 
 static sr_error_t
-nlifd_iface_change_enabled(const struct lyd_node * leaf,
+nlifd_iface_change_enabled(sr_session_ctx_t *      session,
+                           const struct lyd_node * leaf,
                            sr_change_oper_t        oper,
                            const char *            old,
                            void *                  store)
@@ -674,11 +663,11 @@ nlifd_iface_change_enabled(const struct lyd_node * leaf,
 	bool                val;
 	int                 ret;
 
-	iface = nlifd_iface_from_node(leaf, store);
+	iface = nlifd_iface_from_node(session, leaf, store);
 	if (!iface) {
-		srplug_node_notice(leaf,
-		                   "cannot change interface: "
-		                   "no such interface");
+		nlifd_node_notice(session,
+		                  leaf,
+		                  "cannot change interface: no such interface");
 		return SR_ERR_NOT_FOUND;
 	}
 
@@ -707,19 +696,21 @@ nlifd_iface_change_enabled(const struct lyd_node * leaf,
 
 	ret = nlif_iface_set_admstate(iface, val);
 	if (ret) {
-		srplug_node_notice(leaf,
-		                   "cannot change interface: %s",
-		                   strerror(-ret));
+		nlifd_node_notice(session,
+		                  leaf,
+		                  "cannot change interface: %s",
+		                  strerror(-ret));
 		return nlifd_iface_error(ret);
 	}
 
-	srplug_node_debug(leaf, "interface changed");
+	nlifd_node_debug(session, leaf, "interface changed");
 
 	return SR_ERR_OK;
 }
 
 static sr_error_t
-nlifd_iface_restore_enabled(const struct lyd_node * leaf,
+nlifd_iface_restore_enabled(sr_session_ctx_t *      session,
+                            const struct lyd_node * leaf,
                             sr_change_oper_t        oper,
                             const char *            old,
                             void *                  store)
@@ -731,10 +722,11 @@ nlifd_iface_restore_enabled(const struct lyd_node * leaf,
 	bool                val;
 	int                 ret;
 
-	iface = nlifd_iface_from_node(leaf, store);
+	iface = nlifd_iface_from_node(session, leaf, store);
 	if (!iface) {
-		srplug_node_err(leaf,
-		                "cannot restore interface: no such interface");
+		nlifd_node_err(session,
+		               leaf,
+		               "cannot restore interface: no such interface");
 		return SR_ERR_OK;
 	}
 
@@ -750,10 +742,11 @@ nlifd_iface_restore_enabled(const struct lyd_node * leaf,
 		srplug_assert(old);
 		ret = ustr_parse_bool(old, &val);
 		if (ret) {
-			srplug_node_err(leaf,
-			                "cannot restore interface: "
-			                "'%s': invalid value",
-			                old);
+			nlifd_node_err(session,
+			               leaf,
+			               "cannot restore interface: "
+			               "'%s': invalid value",
+			               old);
 			return SR_ERR_OK;
 		}
 		break;
@@ -766,17 +759,18 @@ nlifd_iface_restore_enabled(const struct lyd_node * leaf,
 
 	ret = nlif_iface_set_admstate(iface, val);
 	if (ret)
-		srplug_node_err(leaf,
-		                "cannot restore interface: %s",
-		                strerror(-ret));
+		nlifd_node_err(session,
+		               leaf,
+		               "cannot restore interface: %s", strerror(-ret));
 	else
-		srplug_node_debug(leaf, "interface restored");
+		nlifd_node_debug(session, leaf, "interface restored");
 
 	return SR_ERR_OK;
 }
 
 static sr_error_t
-nlifd_iface_change_type(const struct lyd_node * leaf,
+nlifd_iface_change_type(sr_session_ctx_t *      session,
+                        const struct lyd_node * leaf,
                         sr_change_oper_t        oper,
                         const char *            old,
                         void *                  store)
@@ -789,11 +783,11 @@ nlifd_iface_change_type(const struct lyd_node * leaf,
 	const char *        type;
 	int                 ret;
 
-	iface = nlifd_iface_from_node(leaf, store);
+	iface = nlifd_iface_from_node(session, leaf, store);
 	if (!iface) {
-		srplug_node_notice(leaf,
-		                   "cannot change interface: "
-		                   "no such interface");
+		nlifd_node_notice(session,
+		                  leaf,
+		                  "cannot change interface: no such interface");
 		return SR_ERR_NOT_FOUND;
 	}
 
@@ -818,27 +812,30 @@ nlifd_iface_change_type(const struct lyd_node * leaf,
 
 	ret = nlifd_iface_coherent_type_str(iface, &type);
 	if (ret) {
-		srplug_node_notice(leaf,
-		                   "cannot change interface: "
-		                   "failed to retrieve type: %s",
-		                   strerror(-ret));
+		nlifd_node_notice(session,
+		                  leaf,
+		                  "cannot change interface: "
+		                  "failed to retrieve type: %s",
+		                  strerror(-ret));
 		return nlifd_iface_error(ret);
 	}
 
 	if (strcmp(type, val)) {
-		srplug_node_notice(leaf,
-		                   "cannot change interface: %s",
-		                   sr_strerror(SR_ERR_UNSUPPORTED));
+		nlifd_node_notice(session,
+		                  leaf,
+		                  "cannot change interface: %s",
+		                  srepo_errstr(SR_ERR_UNSUPPORTED));
 		return SR_ERR_UNSUPPORTED;
 	}
 
-	srplug_node_debug(leaf, "interface changed");
+	nlifd_node_debug(session, leaf, "interface changed");
 
 	return SR_ERR_OK;
 }
 
 static sr_error_t
-nlifd_iface_restore_type(const struct lyd_node * leaf,
+nlifd_iface_restore_type(sr_session_ctx_t *      session,
+                         const struct lyd_node * leaf,
                          sr_change_oper_t        oper __unused,
                          const char *            old __unused,
                          void *                  store __unused)
@@ -846,7 +843,7 @@ nlifd_iface_restore_type(const struct lyd_node * leaf,
 	srplug_assert(srepo_dat_node_type(leaf) & LYD_NODE_TERM);
 	nlif_store_assert((const struct nlif_store *)store);
 
-	srplug_node_debug(leaf, "interface restored");
+	nlifd_node_debug(session, leaf, "interface restored");
 
 	return SR_ERR_OK;
 }
@@ -892,7 +889,8 @@ nlifd_iface_process_aborts(sr_session_ctx_t *  session,
 
 		err = nlif_iface_apply(iface);
 		if (err < 0) {
-			srplug_path_err(
+			nlifd_xpath_err(
+				session,
 				xpath,
 				"[%u]: cannot abort interface changes: "
 				"%s",
@@ -902,11 +900,9 @@ nlifd_iface_process_aborts(sr_session_ctx_t *  session,
 				ret = nlifd_iface_error(err);
 		}
 		else if (err)
-			srplug_path_debug(xpath,
-			                  "%s[%u]: "
-			                  "interface changes aborted",
-			                  nlif_iface_index(iface),
-			                  nlif_iface_name(iface));
+			nlifd_xpath_debug(session,
+			                  xpath,
+			                  "interface changes aborted");
 	}
 
 	return ret;
@@ -937,7 +933,8 @@ nlifd_iface_process_changes(sr_session_ctx_t *  session,
 		nlif_store_foreach_iface(store, hndl, iface) {
 			ret = nlif_iface_apply(iface);
 			if (ret < 0) {
-				srplug_path_notice(
+				nlifd_xpath_notice(
+					session,
 					xpath,
 					"[%u]: cannot apply interface changes: "
 					"%s",
@@ -950,7 +947,8 @@ nlifd_iface_process_changes(sr_session_ctx_t *  session,
 			}
 
 			if (ret) {
-				srplug_path_debug(xpath,
+				nlifd_xpath_debug(session,
+				                  xpath,
 				                  "%s[%u]: "
 				                  "interface changes applied",
 				                  nlif_iface_name(iface),
@@ -992,7 +990,7 @@ nlifd_on_iface_change(sr_session_ctx_t * session,
 		break;
 
 	case SR_EV_DONE:
-		srplug_path_debug(xpath, "interfaces configured");
+		nlifd_xpath_debug(session, xpath, "interfaces configured");
 		return SR_ERR_OK;
 
 	case SR_EV_ABORT:
@@ -1007,10 +1005,11 @@ nlifd_on_iface_change(sr_session_ctx_t * session,
 	}
 
 	if (ret != SR_ERR_OK)
-		srplug_path_warn(xpath,
+		nlifd_xpath_warn(session,
+		                 xpath,
 		                 "failed to %s interfaces configuration: %s",
 		                 act,
-		                 sr_strerror(ret));
+		                 srepo_errstr(ret));
 
 	return ret;
 }
@@ -1037,7 +1036,7 @@ struct nlifd {
 	struct nlif_gate             gate;
 };
 
-#define nlifd_assert(_nlifd) \
+#define nlifd_assert_daemon(_nlifd) \
 	srplug_assert(_nlifd); \
 	srplug_daemon_assert(&(_nlifd)->super); \
 	nlif_store_assert(&(_nlifd)->store); \
@@ -1061,14 +1060,14 @@ nlifd_push_oper(struct nlif_obsrv_subscriber * subscriber,
 	sr_session_ctx_t *  sess = srplug_daemon_session(&dmn->super);
 	sr_error_t          ret;
 
-	nlifd_assert(dmn);
+	nlifd_assert_daemon(dmn);
 	nlif_iface_assert(iface);
 
 	len = nlifd_iface_create_path(&path, iface);
 	if (len < 0) {
-		srplug_warn("[%u]: cannot refresh interface status: %s",
-		            nlif_iface_index(iface),
-		            strerror(-len));
+		nlifd_warn("[%u]: cannot refresh interface status: %s",
+		           nlif_iface_index(iface),
+		           strerror(-len));
 		return;
 	}
 
@@ -1080,7 +1079,7 @@ nlifd_push_oper(struct nlif_obsrv_subscriber * subscriber,
 	if (ret == SR_ERR_OK) {
 #if defined(CONFIG_NLIF_DEBUG)
 		path[len] = '\0';
-		srplug_path_debug(path, "interface status refreshed");
+		nlifd_xpath_debug(sess, path, "interface status refreshed");
 #endif /* defined(CONFIG_NLIF_DEBUG) */
 		srepo_free(path);
 		return;
@@ -1094,9 +1093,10 @@ discard:
 	 * nlifd_iface_fill_admstate() or nlifd_iface_fill_operstate().
 	 */
 	path[len] = '\0';
-	srplug_path_warn(path,
+	nlifd_xpath_warn(sess,
+	                 path,
 	                 "cannot refresh interface status: %s",
-	                 sr_strerror(ret));
+	                 srepo_errstr(ret));
 	srepo_free(path);
 }
 
@@ -1117,7 +1117,7 @@ nlifd_dispatch_notif(struct upoll_worker * worker,
 
 	struct nlifd * dmn = containerof(worker, typeof(*dmn), work);
 
-	nlifd_assert(dmn);
+	nlifd_assert_daemon(dmn);
 	nlif_gate_notify(&dmn->gate);
 
 	return 0;
@@ -1126,7 +1126,7 @@ nlifd_dispatch_notif(struct upoll_worker * worker,
 static int
 nlifd_enable_notif(struct nlifd * daemon)
 {
-	nlifd_assert(daemon);
+	nlifd_assert_daemon(daemon);
 
 	int          ret;
 	const char * msg __unused;
@@ -1150,7 +1150,7 @@ nlifd_enable_notif(struct nlifd * daemon)
 		goto disable;
 	}
 
-	srplug_debug("notification worker enabled");
+	nlifd_debug("notification worker enabled");
 
 	return 0;
 
@@ -1158,7 +1158,7 @@ disable:
 	nlif_store_disable_notif(&daemon->store, &daemon->gate);
 err:
 	nlif_store_unsubscribe(&daemon->store, &daemon->oper_sub);
-	srplug_err("cannot enable notification worker: %s: %s",
+	nlifd_err("cannot enable notification worker: %s: %s",
 	           msg,
 	           strerror(-ret));
 
@@ -1168,14 +1168,14 @@ err:
 static void
 nlifd_disable_notif(struct nlifd * daemon)
 {
-	nlifd_assert(daemon);
+	nlifd_assert_daemon(daemon);
 
 	upoll_unregister(srplug_daemon_poller(&daemon->super),
 	                 nlif_gate_fd(&daemon->gate));
 	nlif_store_disable_notif(&daemon->store, &daemon->gate);
 	nlif_store_unsubscribe(&daemon->store, &daemon->oper_sub);
 
-	srplug_debug("notification worker disabled");
+	nlifd_debug("notification worker disabled");
 }
 
 static int
@@ -1184,11 +1184,11 @@ nlifd_iface_dstore_empty(sr_session_ctx_t * session, bool * empty)
 	sr_data_t * data;
 	sr_error_t  ret;
 	
-	ret = srplug_dat_load_data(session,
-	                           NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
-	                           1,
-	                           0,
-	                           &data);
+	ret = srepo_dat_load_data(session,
+	                          NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
+	                          1,
+	                          0,
+	                          &data);
 	switch (ret) {
 	case SR_ERR_OK:
 		*empty = false;
@@ -1202,7 +1202,7 @@ nlifd_iface_dstore_empty(sr_session_ctx_t * session, bool * empty)
 		return ret;
 	}
 
-	srplug_dat_release_data(data);
+	srepo_dat_release_data(data);
 
 	return SR_ERR_OK;
 }
@@ -1214,22 +1214,22 @@ nlifd_iface_reset_config_dstore(sr_session_ctx_t *    session,
 {
 	srplug_assert(session);
 	srplug_assert(context);
-	nlifd_assert(daemon);
+	nlifd_assert_daemon(daemon);
 
 	struct lyd_node *              top;
 	const struct nlif_store_hndl * hndl;
 	struct nlif_iface *            iface;
 	int                            err;
 
-	err = srplug_dat_create_container(context,
-	                                  NULL,
-	                                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-	                                  &top);
+	err = srepo_dat_create_container(context,
+	                                 NULL,
+	                                 NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                                 &top);
 	if (err != SR_ERR_OK)
-		return err;
+		goto err;
 
 	nlif_store_foreach_iface(&daemon->store, hndl, iface) {
-		err = nlifd_iface_new_entry(context, top, iface, NULL);
+		err = nlifd_iface_new_entry(session, context, top, iface, NULL);
 		if (err != SR_ERR_OK)
 			goto free;
 	}
@@ -1243,12 +1243,17 @@ nlifd_iface_reset_config_dstore(sr_session_ctx_t *    session,
 	 * Also note that any missing implicit (default) nodes will be added to
 	 * the data tree.
 	 */
-	return srplug_replace_config(session,
-	                             NLIFD_IETF_IFACE_YANG_MODULE,
-	                             top);
+	err = srepo_replace_config(session, NLIFD_IETF_IFACE_YANG_MODULE, top);
+	if (err == SR_ERR_OK)
+		goto free;
+
+	return SR_ERR_OK;
 
 free:
-	srplug_dat_free_tree(top);
+	srepo_dat_free_tree(top);
+err:
+	nlifd_warn("cannot reset interfaces configuration: %s",
+	           srepo_errstr(err));
 
 	return err;
 }
@@ -1258,7 +1263,7 @@ nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
                               const struct nlifd * daemon)
 {
 	srplug_assert(session);
-	nlifd_assert(daemon);
+	nlifd_assert_daemon(daemon);
 
 	char *                         path;
 	const struct nlif_store_hndl * hndl;
@@ -1302,7 +1307,7 @@ discard:
 	srepo_discard_oper_changes(session, NLIFD_IETF_IFACE_YANG_MODULE);
 	srepo_free(path);
 
-	srplug_warn("cannot setup interfaces status: %s", sr_strerror(ret));
+	nlifd_warn("cannot setup interfaces status: %s", srepo_errstr(ret));
 
 	return ret;
 }
@@ -1310,19 +1315,19 @@ discard:
 static int
 nlifd_load(struct nlifd * daemon)
 {
-	nlifd_assert(daemon);
+	nlifd_assert_daemon(daemon);
 
 	sr_session_ctx_t *    sess = srplug_daemon_session(&daemon->super);
 	const struct ly_ctx * ctx;
 	bool                  empty;
 	int                   ret;
 
-	ret = srplug_acquire_context(sess, &ctx);
+	ret = srepo_acquire_context(sess, &ctx);
 	if (ret != SR_ERR_OK)
 		goto err;
 
 	ret = SR_ERR_NOT_FOUND;
-	if (!srplug_find_module(ctx, "iana-if-type"))
+	if (!srepo_sch_find_module(ctx, "iana-if-type"))
 		goto release;
 	if (srplug_probe_feature(ctx,
 	                         "ietf-interfaces",
@@ -1336,7 +1341,7 @@ nlifd_load(struct nlifd * daemon)
 	                         "ietf-interfaces",
 	                         &nlifd_if_mib_feat) != SR_ERR_OK)
 		goto release;
-	if (!srplug_find_module(ctx, "netlink-interfaces"))
+	if (!srepo_sch_find_module(ctx, "netlink-interfaces"))
 		goto release;
 
 	ret = nlifd_iface_dstore_empty(sess, &empty);
@@ -1364,14 +1369,14 @@ nlifd_load(struct nlifd * daemon)
 	if (ret)
 		goto release;
 
-	srplug_release_context(sess);
+	srepo_release_context(sess);
 
 	return 0;
 
 release:
-	srplug_release_context(sess);
+	srepo_release_context(sess);
 err:
-	srplug_err("cannot load interfaces data: %s", sr_strerror(ret));
+	nlifd_err("cannot load interfaces data: %s", srepo_errstr(ret));
 
 	return -EPERM;
 }
@@ -1413,7 +1418,7 @@ nlifd_open(struct nlifd * daemon)
 	if (err)
 		goto disable_notif;
 
-	srplug_debug("daemon started");
+	nlifd_debug("daemon started");
 
 	return 0;
 
@@ -1425,7 +1430,7 @@ fini_store:
 close_dmn:
 	srplug_daemon_close(&daemon->super);
 err:
-	srplug_err("cannot start daemon: %s", strerror(-err));
+	nlifd_err("cannot start daemon: %s", strerror(-err));
 
 	return err;
 }
@@ -1433,13 +1438,13 @@ err:
 static void
 nlifd_close(struct nlifd * daemon)
 {
-	nlifd_assert(daemon);
+	nlifd_assert_daemon(daemon);
 
 	nlifd_disable_notif(daemon);
 	nlif_store_fini(&daemon->store);
 	nlif_gate_fini(&daemon->gate);
 
-	srplug_debug("daemon stopped");
+	nlifd_debug("daemon stopped");
 }
 
 /******************************************************************************
