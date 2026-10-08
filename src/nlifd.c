@@ -206,7 +206,7 @@ nlifd_iface_create_path(char ** path, struct nlif_iface * interface)
 	nlifd_assert_paths();
 
 	ssize_t      ret;
-	const char * name;
+	const char * name = name; /* Avoid spurious warning. */
 
 	ret = nlif_iface_coherent_name(interface, &name);
 	if (ret)
@@ -1073,7 +1073,7 @@ nlifd_push_oper(struct nlif_obsrv_subscriber * subscriber,
 
 	ret = nlifd_iface_refresh_oper(sess, path, len, iface);
 	if (ret != SR_ERR_OK)
-		goto discard;
+		goto err;
 
 	ret = srepo_apply_changes(sess);
 	if (ret == SR_ERR_OK) {
@@ -1085,7 +1085,7 @@ nlifd_push_oper(struct nlif_obsrv_subscriber * subscriber,
 		return;
 	}
 
-discard:
+err:
 	srepo_discard_oper_changes(sess, NLIFD_IETF_IFACE_YANG_MODULE);
 
 	/*
@@ -1279,22 +1279,22 @@ nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
 		len = nlifd_iface_fill_path_name(path, nlif_iface_name(iface));
 		if (len < 0) {
 			ret = nlifd_iface_error(len);
-			goto discard;
+			goto err;
 		}
 
 		ret = nlifd_iface_refresh_oper(session, path, len, iface);
 		if (ret != SR_ERR_OK)
-			goto discard;
+			goto err;
 
 		if (nlifd_if_mib_feat.on) {
 			ret = nlifd_iface_fill_index(session, path, len, iface);
 			if (ret != SR_ERR_OK)
-				goto discard;
+				goto err;
 		}
 
 		ret = nlifd_iface_fill_hwaddr(session, path, len, iface);
 		if (ret != SR_ERR_OK)
-			goto discard;
+			goto err;
 	}
 
 	ret = srepo_apply_changes(session);
@@ -1303,10 +1303,8 @@ nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
 		return ret;
 	}
 
-discard:
-	srepo_discard_oper_changes(session, NLIFD_IETF_IFACE_YANG_MODULE);
+err:
 	srepo_free(path);
-
 	nlifd_warn("cannot setup interfaces status: %s", srepo_errstr(ret));
 
 	return ret;
@@ -1356,8 +1354,10 @@ nlifd_load(struct nlifd * daemon)
 	ret = srplug_daemon_change_subscribe(&daemon->super,
 	                                     &nlifd_change_sub,
 	                                     &daemon->store);
-	if (ret != SR_ERR_OK)
+	if (ret) {
+		ret = SR_ERR_SYS;
 		goto release;
+	}
 
 	ret = nlifd_iface_setup_oper_dstore(sess, daemon);
 	if (ret != SR_ERR_OK)
@@ -1366,8 +1366,10 @@ nlifd_load(struct nlifd * daemon)
 	ret = srplug_daemon_oper_subscribe(&daemon->super,
 	                                   &nlifd_oper_sub,
 	                                   &daemon->store);
-	if (ret)
+	if (ret) {
+		ret = SR_ERR_SYS;
 		goto release;
+	}
 
 	srepo_release_context(sess);
 
@@ -1418,7 +1420,7 @@ nlifd_open(struct nlifd * daemon)
 	if (err)
 		goto disable_notif;
 
-	nlifd_debug("daemon started");
+	nlifd_notice("daemon started");
 
 	return 0;
 
@@ -1444,7 +1446,9 @@ nlifd_close(struct nlifd * daemon)
 	nlif_store_fini(&daemon->store);
 	nlif_gate_fini(&daemon->gate);
 
-	nlifd_debug("daemon stopped");
+	srplug_daemon_close(&daemon->super);
+
+	nlifd_notice("daemon stopped");
 }
 
 /******************************************************************************
