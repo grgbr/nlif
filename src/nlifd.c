@@ -1317,7 +1317,7 @@ nlifd_load(struct nlifd * daemon)
 
 	sr_session_ctx_t *    sess = srplug_daemon_session(&daemon->super);
 	const struct ly_ctx * ctx;
-	bool                  empty;
+	bool                  empty = false;
 	int                   ret;
 
 	ret = srepo_acquire_context(sess, &ctx);
