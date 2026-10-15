@@ -4,86 +4,6 @@
 
 #warning TODO: use srplg_log_errinfo() to push errors to clients.
 
-#if defined(CONFIG_SRPLUG_LOG)
-
-#define srplug_pnode_log(_svrt, _node, _path, _fmt, ...) \
-	({ \
-		enum elog_severity      __svrt = _svrt; \
-		const struct lyd_node * __node = _node; \
-		const char *            __path = _path; \
-		\
-		__node ? srplug_log(__svrt, \
-		                    "'%s/%s': " _fmt, \
-		                    srplug_lyd_path(__node), \
-		                    __path, \
-		                    ## __VA_ARGS__) \
-		       : srplug_log(__svrt, \
-		                    "'%s': " _fmt, \
-		                    __path, \
-		                    ## __VA_ARGS__); \
-	 })
-
-#define srplug_pnode_err(_node, _path, _fmt, ...) \
-	srplug_pnode_log(ELOG_ERR_SEVERITY, \
-	                 _node, \
-	                 _path, \
-	                 _fmt, \
-	                 ## __VA_ARGS__)
-
-#define srplug_pnode_warn(_node, _path, _fmt, ...) \
-	srplug_pnode_log(ELOG_WARNING_SEVERITY, \
-	                 _node, \
-	                 _path, \
-	                 _fmt, \
-	                 ## __VA_ARGS__)
-
-#define srplug_pnode_notice(_node, _path, _fmt, ...) \
-	srplug_pnode_log(ELOG_NOTICE_SEVERITY, \
-	                 _node, \
-	                 _path, \
-	                 _fmt, \
-	                 ## __VA_ARGS__)
-
-#define srplug_pnode_info(_node, _path, _fmt, ...) \
-	srplug_pnode_log(ELOG_INFO_SEVERITY, \
-	                 _node, \
-	                 _path, \
-	                 _fmt, \
-	                 ## __VA_ARGS__)
-
-#if defined(CONFIG_SRPLUG_DEBUG)
-
-#define srplug_pnode_debug(_node, _path, _fmt, ...) \
-	srplug_pnode_log(ELOG_DEBUG_SEVERITY, \
-	                 _node, \
-	                 _path, \
-	                 _fmt, \
-	                 ## __VA_ARGS__)
-
-#endif /* defined(CONFIG_SRPLUG_DEBUG) */
-
-#else  /* !defined(CONFIG_SRPLUG_LOG) */
-
-#define srplug_pnode_log(_svrt, _node, _path, _fmt, ...) \
-	do { } while (0)
-
-#define srplug_pnode_err(_node, _path, _fmt, ...) \
-	do { } while (0)
-
-#define srplug_pnode_warn(_node, _path, _fmt, ...) \
-	do { } while (0)
-
-#define srplug_pnode_notice(_node, _path, _fmt, ...) \
-	do { } while (0)
-
-#define srplug_pnode_info(_node, _path, _fmt, ...) \
-	do { } while (0)
-
-#define srplug_pnode_debug(_node, _path, _fmt, ...) \
-	do { } while (0)
-
-#endif /* defined(CONFIG_SRPLUG_LOG) */
-
 char *
 srplug_lyd_path(const struct lyd_node * node)
 {
@@ -211,7 +131,9 @@ srplug_lyd_create_list_keyent(const struct ly_ctx * context,
 	int    ret;
 	char * kpath;
 
-	if (asprintf(&kpath, "%s[%s=\"%s\"]", path, key, value) < 0) {
+	ret = asprintf(&kpath, "%s[%s='%s']", path, key, value);
+	srplug_assert(ret);
+	if (ret < 0) {
 		if (errno == ENOMEM)
 			abort();
 
@@ -222,7 +144,6 @@ srplug_lyd_create_list_keyent(const struct ly_ctx * context,
 		return SR_ERR_LY;
 	}
 
-	srplug_assert(ret > 0);
 	ret = srplug_lyd_new_path(context, parent, kpath, value, 0, entry);
 	if (ret != LY_SUCCESS) {
 		srplug_assert(ret != LY_EEXIST);
@@ -308,4 +229,60 @@ srplug_lyd_release_context(sr_session_ctx_t * session)
 	srplug_assert(session);
 
 	sr_session_release_context(session);
+}
+
+const char *
+srplug_dstore_str(sr_datastore_t ds)
+{
+	switch (ds) {
+	case SR_DS_RUNNING:
+		return "running";
+
+	case SR_DS_STARTUP:
+		return "startup";
+
+	case SR_DS_CANDIDATE:
+		return "candidate";
+
+	case SR_DS_OPERATIONAL:
+		return "operational";
+
+	case SR_DS_FACTORY_DEFAULT:
+		return "factory-default";
+
+	default:
+		srplug_assert(0);
+		return "??";
+	}
+}
+
+int
+srplug_replace_dstore(sr_session_ctx_t * session,
+                      const char *       module,
+                      struct lyd_node *  tree)
+{
+	srplug_assert(session);
+	srplug_assert(module);
+	srplug_assert(module[0]);
+	srplug_assert(tree);
+
+	int ret;
+
+	ret = sr_replace_config(session, module, tree, 0);
+	if (ret != SR_ERR_OK) {
+		/*
+		 * Session datastore MUST be either startup, running or
+		 * candidate.
+		 * In addition, the lyd_node tree given in argument MUST have
+		 * been created using the YANG context related to the session
+		 * given in argument.
+		 */
+		srplug_assert(ret != SR_ERR_INVAL_ARG);
+
+		srplug_notice("'%s' datastore: cannot replace content: %s",
+		              srplug_dstore_str(sr_session_get_ds(session)),
+		              sr_strerror(ret));
+	}
+
+	return ret;
 }

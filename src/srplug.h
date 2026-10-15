@@ -190,7 +190,7 @@ struct srplug_sigs_work {
 };
 
 struct srplug_daemon {
-        sr_session_ctx_t *      sess;
+	sr_session_ctx_t *      sess;
 	struct upoll            poll;
 	struct upoll_worker     sub_work;
 	sr_subscription_ctx_t * sub_ctx;
@@ -202,6 +202,14 @@ struct srplug_daemon {
 #define srplug_daemon_assert(_daemon) \
 	srplug_assert(_daemon); \
 	srplug_assert((_daemon)->sess)
+
+static inline sr_session_ctx_t *
+srplug_daemon_session(const struct srplug_daemon * daemon)
+{
+	srplug_daemon_assert(daemon);
+
+	return daemon->sess;
+}
 
 static inline const struct upoll *
 srplug_daemon_poller(const struct srplug_daemon * daemon)
