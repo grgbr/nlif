@@ -589,7 +589,37 @@ nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
 	 */
 	nlif_iface_refresh_state(iface, lnk);
 
-	/*nlif_iface_print(iface, stderr);*/
+	/* nlif_iface_print(iface, stderr); */
+}
+
+int
+nlif_store_enable_notif(struct nlif_store * store, struct nlif_gate * gate)
+{
+	nlif_store_assert(store);
+	nlif_assert(!nlif_obsrv_subscribed(&store->sub));
+	nlif_assert(gate);
+
+	int err;
+
+	err = nlif_gate_subscribe(gate, &store->sub);
+	if (!err) {
+		nlif_dbg("store notification enabled.");
+		return 0;
+	}
+
+	return err;
+}
+
+void
+nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate)
+{
+	nlif_store_assert(store);
+	nlif_assert(nlif_obsrv_subscribed(&store->sub));
+	nlif_assert(gate);
+
+	nlif_gate_unsubscribe(gate, &store->sub);
+
+	nlif_dbg("store notification disabled.");
 }
 
 #endif /* defined(CONFIG_NLIF_OBSRV) */
@@ -612,7 +642,7 @@ nlif_store_fini(struct nlif_store * store)
 {
 	nlif_store_assert(store);
 #if defined(CONFIG_NLIF_OBSRV)
-	nlif_assert(nlif_obsrv_subscribed(&store->sub));
+	nlif_assert(!nlif_obsrv_subscribed(&store->sub));
 #endif /* defined(CONFIG_NLIF_OBSRV) */
 
 	nlif_store_release(store);

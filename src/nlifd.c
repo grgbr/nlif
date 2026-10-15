@@ -3,6 +3,107 @@
 #include <utils/signal.h>
 #include <stdlib.h>
 
+struct nlifd_notif_work {
+	struct upoll_worker base;
+	struct nlif_gate *  gate;
+};
+
+#define nlifd_assert_notif_work(_work) \
+	nlif_assert(_work); \
+	nlif_assert((_work)->base.dispatch); \
+	nlif_gate_assert((_work)->gate)
+
+#define NLIFD_INIT_NOTIF_WORK(_work, _gate) \
+	{ \
+		.base.dispatch = nlifd_dispatch_notif, \
+		.gate          = _gate, \
+	}
+
+static
+int
+nlifd_dispatch_notif(struct upoll_worker * worker,
+                     uint32_t              state __unused,
+                     const struct upoll *  poller __unused)
+{
+	nlif_assert(worker);
+	nlif_assert(state);
+	nlif_assert(!(state & EPOLLOUT));
+	nlif_assert(!(state & EPOLLRDHUP));
+	nlif_assert(!(state & EPOLLPRI));
+	nlif_assert(!(state & EPOLLHUP));
+	nlif_assert(!(state & EPOLLERR));
+	nlif_assert(state & EPOLLIN);
+	nlif_assert(poller);
+
+	struct nlifd_notif_work * notif = containerof(worker,
+	                                              typeof(*notif),
+	                                              base);
+
+	nlifd_assert_notif_work(notif);
+	nlif_gate_notify(notif->gate);
+
+	return 0;
+}
+
+static int
+nlifd_enable_notif(struct nlifd_notif_work * worker,
+                   struct nlif_store *       store,
+                   const struct upoll *      poller)
+{
+	nlifd_assert_notif_work(worker);
+	nlif_store_assert(store);
+	nlif_assert(poller);
+
+	struct nlif_gate * gate = worker->gate;
+	int                ret;
+	const char *       msg;
+
+	ret = nlif_store_enable_notif(store, gate);
+	if (ret) {
+		msg = "cannot enable store notification";
+		goto err;
+	}
+
+	ret = upoll_register(poller,
+	                     nlif_gate_fd(gate),
+	                     EPOLLIN,
+	                     &worker->base);
+	if (ret) {
+		msg = "cannot enable polling";
+		goto disable;
+	}
+
+	nlif_dbg("notification worker enabled.");
+
+	return 0;
+
+disable:
+	nlif_store_disable_notif(store, gate);
+err:
+	nlif_err("cannot enable notification worker: %s: %s.",
+	         msg,
+	         strerror(-ret));
+
+	return ret;
+}
+
+void
+nlifd_disable_notif(struct nlifd_notif_work * worker,
+                    struct nlif_store *       store,
+                    const struct upoll *      poller)
+{
+	nlifd_assert_notif_work(worker);
+	nlif_store_assert(store);
+	nlif_assert(poller);
+
+	struct nlif_gate * gate = worker->gate;
+
+	upoll_unregister(poller, nlif_gate_fd(gate));
+	nlif_store_disable_notif(store, gate);
+
+	nlif_dbg("notification worker disabled.");
+}
+
 struct nlifd_sigs_work {
 	struct upoll_worker base;
 	int                 fd;
@@ -128,11 +229,12 @@ nlifd_fini_sigs(const struct nlifd_sigs_work * worker,
 int
 main(int argc, const char * argv[])
 {
-	struct upoll           poll;
-	struct nlifd_sigs_work sigs;
-	struct nlif_gate       gate;
-	struct nlif_store      store;
-	int                    ret;
+	struct upoll            poll;
+	struct nlifd_sigs_work  sigs;
+	struct nlif_gate        gate;
+	struct nlifd_notif_work notif = NLIFD_INIT_NOTIF_WORK(notif, &gate);
+	struct nlif_store       store = NLIF_STORE_INIT(store);
+	int                     ret;
 
 	ret = upoll_open(&poll, 2U);
 	if (ret) {
@@ -148,8 +250,7 @@ main(int argc, const char * argv[])
 	if (ret)
 		goto fini_sigs;
 
-	nlif_store_init(&store);
-	nlif_store_enable_notif(&store, &gate, &poll);
+	nlifd_enable_notif(&notif, &store, &poll);
 	nlif_store_load(&store, &gate);
 
 	do {
@@ -158,7 +259,7 @@ main(int argc, const char * argv[])
 	if (ret == -ESHUTDOWN)
 		ret = 0;
 
-	nlif_store_disable_notif(&store, &gate, &poll);
+	nlifd_disable_notif(&notif, &store, &poll);
 	nlif_store_fini(&store);
 
 	nlif_gate_fini(&gate);
