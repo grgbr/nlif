@@ -1,7 +1,7 @@
 #ifndef _NLIF_REPO_H
 #define _NLIF_REPO_H
 
-#include "store.h"
+#include "lib/store.h"
 #include <utils/poll.h>
 
 struct nlif_repo {

@@ -1,7 +1,8 @@
 #include "repo.h"
-#include "iface.h"
-#include "srplug.h"
-#include "lyd.h"
+#include "lib/iface.h"
+#include "srplug/daemon.h"
+#include "srepo/schema.h"
+#include "srepo/data.h"
 #include <sysrepo/xpath.h>
 #include <sysexits.h>
 
@@ -68,17 +69,17 @@ nlifd_iface_new_entry(const struct ly_ctx *     context,
 	const char *      str;
 	int               ret;
 
-	ret = srplug_lyd_create_list_keyent(context,
-	                                    container,
-	                                    "interface",
-	                                    "name",
-	                                    nlif_iface_name(interface),
-	                                    &ent);
+	ret = srepo_dat_create_list_keyent(context,
+	                                   container,
+	                                   "interface",
+	                                   "name",
+	                                   nlif_iface_name(interface),
+	                                   &ent);
 	if (ret != SR_ERR_OK)
 		return ret;
 
 	/* TODO: replace "false" with default schema value if existing. */
-	ret = srplug_lyd_create_leaf(ent, "enabled", "false", NULL);
+	ret = srepo_dat_create_leaf(ent, "enabled", "false", NULL);
 	if (ret != SR_ERR_OK)
 		return ret;
 
@@ -87,7 +88,7 @@ nlifd_iface_new_entry(const struct ly_ctx *     context,
 		srplug_node_info(ent, "unsupported interface type");
 		return SR_ERR_UNSUPPORTED;
 	}
-	ret = srplug_lyd_create_leaf(ent, "type", str, NULL);
+	ret = srepo_dat_create_leaf(ent, "type", str, NULL);
 	if (ret != SR_ERR_OK)
 		return ret;
 
@@ -110,7 +111,7 @@ nlifd_iface_name_from_node(const struct lyd_node * node,
 	char *         str;
 	size_t         len;
 
-	path = srplug_lyd_path(node);
+	path = srepo_dat_path(node);
 	nlif_assert(path);
 
 	str = sr_xpath_key_value(path, "interface", "name", &ctx);
@@ -206,10 +207,10 @@ nlifd_on_iface_get_admin_status(sr_session_ctx_t * session,
 
 	/* TODO: check ctx != NULL */
 	ctx = sr_session_acquire_context(session);
-	ret = srplug_lyd_create_leaf(*parent,
-	                             "admin-status", /* path?? */
-	                             nlifd_iface_admstate_str(iface),
-	                             NULL);
+	ret = srepo_dat_create_leaf(*parent,
+	                            "admin-status", /* path?? */
+	                            nlifd_iface_admstate_str(iface),
+	                            NULL);
 	if (ret != SR_ERR_OK)
 		goto release;
 
@@ -232,7 +233,7 @@ static const struct srplug_sub nlifd_iface_admin_status_sub = {
 };
 #endif
 
-static sr_error_t
+static int
 nlifd_on_iface_type_change(sr_session_ctx_t * session __unused,
                            uint32_t           sub_id __unused,
                            const char *       module __unused,
@@ -266,9 +267,9 @@ nlifd_on_iface_type_change(sr_session_ctx_t * session __unused,
 }
 
 static sr_error_t
-nlifd_iface_change_admstate(const struct lyd_node * node,
-                            sr_change_oper_t        oper,
-                            struct nlif_iface *     interface)
+nlifd_iface_change_enabled(const struct lyd_node * node,
+                           sr_change_oper_t        oper,
+                           struct nlif_iface *     interface)
 {
 	nlif_assert(node);
 	nlif_iface_assert(interface);
@@ -279,11 +280,11 @@ nlifd_iface_change_admstate(const struct lyd_node * node,
 	switch (oper) {
 	case SR_OP_CREATED:
 	case SR_OP_MODIFIED:
-		val = srplug_lyd_node_as_bool(node);
+		val = srepo_dat_node_as_bool(node);
 		break;
 
 	case SR_OP_DELETED:
-		if (srplug_lyd_node_dflt_as_bool(node, &val) != SR_ERR_OK)
+		if (srepo_dat_node_dflt_as_bool(node, &val) != SR_ERR_OK)
 			val = false;
 		break;
 
@@ -309,10 +310,15 @@ nlifd_iface_change_admstate(const struct lyd_node * node,
 	return SR_ERR_CALLBACK_FAILED;
 }
 
+typedef sr_error_t nlifd_iface_handle_change_fn(const struct lyd_node *,
+                                                sr_change_oper_t,
+                                                struct nlif_iface *);
+
 static sr_error_t
-nlifd_iface_change_enabled(sr_session_ctx_t * session,
-                           const char *       xpath,
-                           struct nlif_repo * repository)
+nlifd_iface_handle_changes(sr_session_ctx_t *             session,
+                           const char *                   xpath,
+                           struct nlif_repo *             repository,
+                           nlifd_iface_handle_change_fn * handle)
 {
 	nlif_assert(session);
 	nlif_assert(xpath);
@@ -322,7 +328,7 @@ nlifd_iface_change_enabled(sr_session_ctx_t * session,
 	sr_change_iter_t *      iter;
 	sr_change_oper_t        oper;
 	const struct lyd_node * node;
-	int                     ret;
+	sr_error_t              ret;
 
 	ret = sr_get_changes_iter(session, xpath, &iter);
 	if (ret != SR_ERR_OK) {
@@ -350,7 +356,7 @@ nlifd_iface_change_enabled(sr_session_ctx_t * session,
 			goto err;
 		}
 
-		ret = nlifd_iface_change_admstate(node, oper, iface);
+		ret = handle(node, oper, iface);
 		if (ret != SR_ERR_OK)
 			goto err;
 
@@ -373,7 +379,7 @@ err:
 	return ret;
 }
 
-static sr_error_t
+static int
 nlifd_on_iface_enabled_change(sr_session_ctx_t * session,
                               uint32_t           sub_id __unused,
                               const char *       module __unused,
@@ -384,7 +390,10 @@ nlifd_on_iface_enabled_change(sr_session_ctx_t * session,
 {
 	switch (event) {
 	case SR_EV_CHANGE:
-		return nlifd_iface_change_enabled(session, xpath, repository);
+		return nlifd_iface_handle_changes(session,
+		                                  xpath,
+		                                  repository,
+		                                  nlifd_iface_change_enabled);
 
 	case SR_EV_DONE:
 		srplug_debug("%s: SR_EV_DONE", xpath);
@@ -416,10 +425,10 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	const struct nlif_iface *      iface;
 	int                            err;
 
-	err = srplug_lyd_create_container(context,
-	                                  NULL,
-	                                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-	                                  &top);
+	err = srepo_dat_create_container(context,
+	                                 NULL,
+	                                 NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                                 &top);
 	if (err)
 		return err;
 
@@ -430,15 +439,13 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	}
 
 	/*
-	 * Here, `top' tree ownership is transfered to srplug_replace_dstore()
+	 * Here, `top' tree ownership is transfered to srepo_replace_dstore()
 	 * so that it will be freed once it has returned thanks to a call to
 	 * lyd_free_all().
 	 * This means we are not requested to call lyd_free_tree() on it from
 	 * now on.
 	 */
-	return srplug_replace_dstore(session,
-	                             NLIFD_IETF_IFACE_YANG_MODULE,
-	                             top);
+	return srepo_replace_dstore(session, NLIFD_IETF_IFACE_YANG_MODULE, top);
 
 free:
 	lyd_free_tree(top);
@@ -465,6 +472,40 @@ static const struct srplug_sub nlifd_subs[] = {
  * Top-level logic.
  ******************************************************************************/
 
+static const struct lys_module *
+nlifd_find_module(const struct ly_ctx * context, const char * module)
+{
+	srplug_assert(context);
+	srplug_assert(module);
+
+	const struct lys_module * mod;
+
+	mod = srepo_sch_find_module(context, module);
+	if (mod)
+		return mod;
+
+	srplug_info("'%s': missing YANG module", module);
+
+	return NULL;
+}
+
+static sr_error_t
+nlifd_acquire_context(sr_session_ctx_t *     session,
+                      const struct ly_ctx ** context)
+{
+	srplug_assert(context);
+
+	sr_error_t ret;
+
+	ret = srepo_acquire_context(session, context);
+	if (ret == SR_ERR_OK)
+		return SR_ERR_OK;
+
+	srplug_info("cannot acquire context: %s", sr_strerror(ret));
+
+	return ret;
+}
+
 static int
 nlifd_load(const struct srplug_daemon * daemon,
            const struct nlif_repo *     repository)
@@ -473,23 +514,30 @@ nlifd_load(const struct srplug_daemon * daemon,
 	const struct ly_ctx * ctx;
 	int                   ret;
 
-	ret = srplug_lyd_acquire_context(sess, &ctx);
+	ret = nlifd_acquire_context(sess, &ctx);
 	if (ret != SR_ERR_OK)
+		goto err;
+
+	ret = SR_ERR_NOT_FOUND;
+	if (!nlifd_find_module(ctx, "ietf-interfaces"))
+		goto release;
+	if (!nlifd_find_module(ctx, "iana-if-type"))
 		goto release;
 
 	ret = nlifd_iface_reset_dstore(sess, ctx, repository);
+	if (ret != SR_ERR_OK)
+		goto release;
 
-release:
-	srplug_lyd_release_context(sess);
-
-	if (ret != SR_ERR_OK) {
-		srplug_err("'%s' interfaces datastore: cannot populate: %s",
-		           srplug_dstore_str(sr_session_get_ds(sess)),
-		           sr_strerror(ret));
-		return -EPERM;
-	}
+	srepo_release_context(sess);
 
 	return 0;
+
+release:
+	srepo_release_context(sess);
+err:
+	srplug_err("cannot load interfaces datastore: %s", sr_strerror(ret));
+
+	return -EPERM;
 }
 
 static void

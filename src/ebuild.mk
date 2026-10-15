@@ -14,8 +14,8 @@ common-cflags       := -Wall \
                        -Wmissing-declarations \
                        -D_GNU_SOURCE \
                        $(EXTRA_CFLAGS) \
-                       -fvisibility=internal \
-                       -I ../lib
+                       -I $(TOPDIR) \
+                       -fvisibility=internal
 
 common-ldflags      := $(common-cflags) $(EXTRA_LDFLAGS) \
                        -Wl,--as-needed \
@@ -26,28 +26,15 @@ common-cflags       := $(filter-out -DNDEBUG,$(common-cflags))
 common-ldflags      := $(filter-out -DNDEBUG,$(common-ldflags))
 endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
 
-arlibs              := libsrplug.a
-libsrplug.a-objs    := static/srplug.o static/lyd.o
-libsrplug.a-cflags  := $(common-cflags)
-libsrplug.a-pkgconf := libelog libetux_timer_list libstroll
-
 bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
 nlifd-objs          := nlifd.o repo.o
-nlifd-lots          := ../lib/builtin.a
+nlifd-lots          := ../lib/builtin.a \
+                       ../srplug/libsrplug.a \
+                       ../srepo/libsrepo.a
 nlifd-cflags        := $(common-cflags)
-nlifd-ldflags       := $(common-ldflags) -lsrplug -lynl
+nlifd-ldflags       := $(common-ldflags) -lynl
 nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-nlifd-pkgconf       += sysrepo libyang $(libsrplug.a-pkgconf)
+nlifd-pkgconf       += sysrepo libyang libetux_timer_list libstroll
 nlifd-path          := $(SBINDIR)/nlifd
-
-
-#bins                += $(call kconf_enabled,NLIF_DAEMON,nlifd)
-#nlifd-objs          := nlifd.o
-#nlifd-lots          := ../lib/builtin.a
-#nlifd-cflags        := $(common-cflags)
-#nlifd-ldflags       := $(common-ldflags) -lynl
-#nlifd-pkgconf       += $(call kconf_enabled,NLIF_LOG,libelog)
-#nlifd-pkgconf       += libutils libstroll
-#nlifd-path          := $(SBINDIR)/nlifd
 
 # ex: filetype=make :
