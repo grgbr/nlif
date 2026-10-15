@@ -4,13 +4,22 @@
 int
 main(int argc, char * const argv[])
 {
-	struct nlif_gate    gate;
-	struct nlif_iface * iface;
-	int                 ret;
+	static const struct elog_stdio_conf conf = {
+		.super.severity = ELOG_DEBUG_SEVERITY,
+		.format         = ELOG_TAG_FMT
+	};
+
+	struct elog_stdio                   log;
+	struct nlif_gate                    gate;
+	struct nlif_iface *                 iface;
+	int                                 ret = EXIT_FAILURE;
+
+	elog_init_stdio(&log, &conf);
+	nlif_log_setup((struct elog *)&log);
 
 	ret = nlif_gate_init(&gate);
 	if (ret)
-		return EXIT_FAILURE;
+		goto fini_log;
 
 	if (argc == 2) {
 		const char * arg = argv[1];
@@ -27,7 +36,7 @@ main(int argc, char * const argv[])
 					nlif_err("'%lu': "
 					         "invalid index specified.",
 					         indx);
-					goto fini;
+					goto fini_gate;
 				}
 
 				ret = nlif_iface_create_byidx(
@@ -40,7 +49,7 @@ main(int argc, char * const argv[])
 					nlif_err("'%s': "
 					         "invalid name specified.",
 					         arg);
-					goto fini;
+					goto fini_gate;
 				}
 
 				ret = nlif_iface_create_byname(arg,
@@ -52,14 +61,14 @@ main(int argc, char * const argv[])
 				nlif_err("'%s': cannot load interface: %s.",
 				         arg,
 				         strerror(ret));
-				goto fini;
+				goto fini_gate;
 			}
 
 			nlif_iface_print(iface, stdout);
 
 			nlif_iface_destroy(iface);
 
-			goto fini;
+			goto fini_gate;
 		}
 	}
 	else if (argc == 1) {
@@ -68,7 +77,7 @@ main(int argc, char * const argv[])
 
 		ret = nlif_store_load(&store, &gate);
 		if (ret)
-			goto fini;
+			goto fini_gate;
 
 		nlif_store_foreach_iface(&store, hndl, iface)
 			nlif_iface_print(iface, stdout);
@@ -80,8 +89,10 @@ main(int argc, char * const argv[])
 		ret = EINVAL;
 	}
 
-fini:
+fini_gate:
 	nlif_gate_fini(&gate);
+fini_log:
+	elog_fini_stdio(&log);
 
 	return ret ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -49,7 +49,7 @@ nlif_log(enum elog_severity severity, const char * format, ...)
 }
 
 void
-nlif_log_init(struct elog * logger)
+nlif_log_setup(struct elog * logger)
 {
 	nlif_assert(!nlif_logger);
 

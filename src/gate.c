@@ -318,12 +318,13 @@ nlif_gate_notify(struct nlif_gate * gate)
 				/* Notify subscribers. */
 				nlif_obsrv_notify(&gate->notif, lnk);
 			}
-			else
+			else {
 				nlif_warn("'%s[%u]': "
 				          "invalid link notification: "
 				          "inconsistent attributes.",
 				          lnk->ifname,
 				          lnk->_hdr.ifi_index);
+			}
 		}
 
 		ynl_ntf_free(ntf);
