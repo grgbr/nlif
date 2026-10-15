@@ -506,7 +506,15 @@ nlif_store_load(struct nlif_store * store, const struct nlif_gate * gate)
 	nlif_assert(!store->count);
 	nlif_assert(gate);
 
-	return nlif_gate_load_links(gate, nlif_store_on_link_loaded, store);
+	int ret;
+
+	ret = nlif_gate_load_links(gate, nlif_store_on_link_loaded, store);
+	if (ret)
+		return ret;
+
+	nlif_dbg("store loaded with %u interfaces.", store->count);
+
+	return 0;
 }
 
 static void
@@ -539,6 +547,8 @@ nlif_store_clear(struct nlif_store * store)
 
 	nlif_store_release(store);
 	nlif_store_reinit(store);
+
+	nlif_dbg("store cleared.");
 }
 
 #if defined(CONFIG_NLIF_OBSRV)
@@ -579,7 +589,7 @@ nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
 	 */
 	nlif_iface_refresh_state(iface, lnk);
 
-	/* nlif_iface_print(iface, stderr); */
+	/*nlif_iface_print(iface, stderr);*/
 }
 
 #endif /* defined(CONFIG_NLIF_OBSRV) */
@@ -593,6 +603,8 @@ nlif_store_init(struct nlif_store * store)
 #if defined(CONFIG_NLIF_OBSRV)
 	nlif_obsrv_setup_subscriber(&store->sub, nlif_store_on_event);
 #endif /* defined(CONFIG_NLIF_OBSRV) */
+
+	nlif_dbg("store opened.");
 }
 
 void
@@ -604,4 +616,6 @@ nlif_store_fini(struct nlif_store * store)
 #endif /* defined(CONFIG_NLIF_OBSRV) */
 
 	nlif_store_release(store);
+
+	nlif_dbg("store closed.");
 }

@@ -2,11 +2,15 @@
 #define _NLIF_GATE_H
 
 #include "obsrv.h"
+#if defined(CONFIG_NLIF_OBSRV)
+#include <utils/poll.h>
+#endif /* defined(CONFIG_NLIF_OBSRV) */
 #include <ynl/rt-link-user.h>
 
 struct nlif_gate {
 	struct ynl_sock *          sock;
 #if defined(CONFIG_NLIF_OBSRV)
+	struct upoll_worker        work;
 	struct nlif_obsrv_notifier notif;
 #endif /* defined(CONFIG_NLIF_OBSRV) */
 };
@@ -61,22 +65,13 @@ nlif_gate_from_notifier(struct nlif_obsrv_notifier * notifier)
 
 extern int
 nlif_gate_subscribe(struct nlif_gate *             gate,
-                    struct nlif_obsrv_subscriber * subscriber);
+                    struct nlif_obsrv_subscriber * subscriber,
+                    const struct upoll *           poller);
 
 extern void
 nlif_gate_unsubscribe(struct nlif_gate *             gate,
-                      struct nlif_obsrv_subscriber * subscriber);
-
-static inline int
-nlif_gate_notif_fd(const struct nlif_gate * gate)
-{
-	nlif_gate_assert(gate);
-
-	return ynl_socket_get_fd(gate->sock);
-}
-
-extern void
-nlif_gate_process_notif(struct nlif_gate * gate);
+                      struct nlif_obsrv_subscriber * subscriber,
+                      const struct upoll *           poller);
 
 #endif /* defined(CONFIG_NLIF_OBSRV) */
 
