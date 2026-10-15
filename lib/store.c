@@ -462,28 +462,33 @@ nlif_store_from_subscriber(struct nlif_obsrv_subscriber * subscriber)
 
 void
 nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
-                    void *                         event,
+                    unsigned int                   event,
+                    void *                         data,
                     struct nlif_obsrv_notifier *   notifier __unused)
 {
-	struct nlif_store *                store =
-		nlif_store_from_subscriber(subscriber);
-	const struct rt_link_getlink_rsp * lnk =
-		(const struct rt_link_getlink_rsp *)event;
-	struct nlif_iface *                iface;
+	if (event == NLIF_LINK_NEW_EVT) {
+		struct nlif_store *                store =
+			nlif_store_from_subscriber(subscriber);
+		const struct rt_link_getlink_rsp * lnk =
+			(const struct rt_link_getlink_rsp *)data;
+		struct nlif_iface *                iface;
 
-	iface = nlif_store_find_iface_byindex(store, lnk->_hdr.ifi_index);
-	if (!iface)
-		return;
+		iface = nlif_store_find_iface_byindex(store,
+		                                      lnk->_hdr.ifi_index);
+		if (!iface)
+			return;
 
-	/*
-	 * We might use nlif_iface_reload_bylink() to reload the interface
-	 * entirely but an update of operational state informations is enought
-	 * since we don't want to coexist with daemons that configure interfaces
-	 * in parallel...
-	 */
-	nlif_iface_refresh_state(iface, lnk);
-
-	/* nlif_iface_print(iface, stderr); */
+		/*
+		 * We might use nlif_iface_reload_bylink() to reload the interface
+		 * entirely but an update of operational state informations is enought
+		 * since we don't want to coexist with daemons that configure interfaces
+		 * in parallel...
+		 */
+		if (nlif_iface_refresh_state(iface, lnk))
+			nlif_obsrv_notify(&store->notif,
+			                  NLIF_STORE_IFACE_CHANGE_EVT,
+			                  iface);
+	}
 }
 
 int
@@ -516,6 +521,26 @@ nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate)
 	nlif_debug("store notification disabled.");
 }
 
+void
+nlif_store_subscribe(struct nlif_store *            store,
+                     struct nlif_obsrv_subscriber * subscriber)
+{
+	nlif_store_assert(store);
+	nlif_assert(subscriber);
+
+	nlif_obsrv_subscribe(&store->notif, subscriber);
+}
+
+void
+nlif_store_unsubscribe(struct nlif_store *            store,
+                       struct nlif_obsrv_subscriber * subscriber)
+{
+	nlif_store_assert(store);
+	nlif_assert(subscriber);
+
+	nlif_obsrv_unsubscribe(&store->notif, subscriber);
+}
+
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 
 void
@@ -526,6 +551,7 @@ nlif_store_init(struct nlif_store * store)
 	nlif_store_reinit(store);
 #if defined(CONFIG_NLIF_NOTIF)
 	nlif_obsrv_setup_subscriber(&store->sub, nlif_store_on_event);
+	nlif_obsrv_setup_notifier(&store->notif);
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	nlif_debug("store opened.");
@@ -537,6 +563,7 @@ nlif_store_fini(struct nlif_store * store)
 	nlif_store_assert(store);
 #if defined(CONFIG_NLIF_NOTIF)
 	nlif_assert(!nlif_obsrv_subscribed(&store->sub));
+	nlif_assert(nlif_obsrv_notifier_empty(&store->notif));
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	nlif_store_release(store);

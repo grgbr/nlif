@@ -317,7 +317,9 @@ nlif_gate_notify(struct nlif_gate * gate)
 			err = nlif_gate_islink_valid(lnk);
 			if (!err) {
 				/* Notify subscribers. */
-				nlif_obsrv_notify(&gate->notif, lnk);
+				nlif_obsrv_notify(&gate->notif,
+				                  NLIF_LINK_NEW_EVT,
+				                  lnk);
 			}
 			else {
 				nlif_notice("%s[%d]: "

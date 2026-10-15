@@ -2,7 +2,8 @@
 
 static void
 nlif_obsrv_notify_subscriber(struct nlif_obsrv_subscriber * subscriber,
-                             void *                         event,
+                             unsigned int                   event,
+                             void *                         data,
                              struct nlif_obsrv_notifier *   notifier)
 
 {
@@ -11,7 +12,7 @@ nlif_obsrv_notify_subscriber(struct nlif_obsrv_subscriber * subscriber,
 	nlif_assert(subscriber->on_event);
 	nlif_assert(notifier);
 
-	subscriber->on_event(subscriber, event, notifier);
+	subscriber->on_event(subscriber, event, data, notifier);
 }
 
 void
@@ -26,7 +27,9 @@ nlif_obsrv_setup_subscriber(struct nlif_obsrv_subscriber * subscriber,
 }
 
 void
-nlif_obsrv_notify(struct nlif_obsrv_notifier * notifier, void * event)
+nlif_obsrv_notify(struct nlif_obsrv_notifier * notifier,
+                  unsigned int                 event,
+                  void *                       data)
 {
 	struct nlif_obsrv_subscriber * sub;
 
@@ -35,7 +38,7 @@ nlif_obsrv_notify(struct nlif_obsrv_notifier * notifier, void * event)
 #endif /* defined(CONFIG_NLIF_DEBUG) */
 
 	stroll_dlist_foreach_entry(&notifier->subs, sub, node)
-		nlif_obsrv_notify_subscriber(sub, event, notifier);
+		nlif_obsrv_notify_subscriber(sub, event, data, notifier);
 
 #if defined(CONFIG_NLIF_DEBUG)
 	notifier->run = false;
@@ -43,11 +46,13 @@ nlif_obsrv_notify(struct nlif_obsrv_notifier * notifier, void * event)
 }
 
 void
-nlif_obsrv_notify_safe(struct nlif_obsrv_notifier * notifier, void * event)
+nlif_obsrv_notify_safe(struct nlif_obsrv_notifier * notifier,
+                       unsigned int                 event,
+                       void *                       data)
 {
 	struct nlif_obsrv_subscriber * sub;
 	struct nlif_obsrv_subscriber * tmp;
 
 	stroll_dlist_foreach_entry_safe(&notifier->subs, sub, node, tmp)
-		nlif_obsrv_notify_subscriber(sub, event, notifier);
+		nlif_obsrv_notify_subscriber(sub, event, data, notifier);
 }

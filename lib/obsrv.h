@@ -11,6 +11,7 @@ struct nlif_obsrv_notifier;
  * Callback notifying a subscriber.
  */
 typedef void nlif_obsrv_on_event_fn(struct nlif_obsrv_subscriber *,
+                                    unsigned int,
                                     void *,
                                     struct nlif_obsrv_notifier *);
 /*
@@ -74,10 +75,14 @@ nlif_obsrv_notifier_empty(const struct nlif_obsrv_notifier * notifier)
 }
 
 extern void
-nlif_obsrv_notify(struct nlif_obsrv_notifier * notifier, void * event);
+nlif_obsrv_notify(struct nlif_obsrv_notifier * notifier,
+                  unsigned int                 event,
+                  void *                       data);
 
 extern void
-nlif_obsrv_notify_safe(struct nlif_obsrv_notifier * notifier, void * event);
+nlif_obsrv_notify_safe(struct nlif_obsrv_notifier * notifier,
+                       unsigned int                 event,
+                       void *                       data);
 
 static inline void
 nlif_obsrv_subscribe(struct nlif_obsrv_notifier *   notifier,

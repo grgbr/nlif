@@ -5,6 +5,11 @@
 #include <ynl/rt-link-user.h>
 #include <netinet/ether.h>
 
+enum nlif_link_event {
+	NLIF_LINK_NEW_EVT = 0,
+	NLIF_LINK_EVT_NR
+};
+
 #define nlif_link_assert(_lnk) \
 	nlif_assert(_lnk); \
 	nlif_assert((_lnk)->_hdr.ifi_index); \

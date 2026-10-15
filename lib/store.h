@@ -19,6 +19,7 @@ struct nlif_store {
 	unsigned int                 count;
 #if defined(CONFIG_NLIF_NOTIF)
 	struct nlif_obsrv_subscriber sub;
+	struct nlif_obsrv_notifier   notif;
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 };
 
@@ -35,8 +36,9 @@ struct nlif_store {
 #define NLIF_STORE_INIT(_store) \
 	{ \
 		_NLIF_STORE_INIT(_store), \
-		.sub = NLIF_OBSRV_SETUP_SUBSCRIBER((_store).sub, \
-		                                   nlif_store_on_event) \
+		.sub   = NLIF_OBSRV_SETUP_SUBSCRIBER((_store).sub, \
+		                                     nlif_store_on_event), \
+		.notif = NLIF_OBSRV_SETUP_NOTIFIER((_store).notif) \
 	}
 
 #else  /* !defined(CONFIG_NLIF_NOTIF) */
@@ -128,7 +130,8 @@ nlif_store_reload(struct nlif_store * store, const struct nlif_gate * gate)
 
 extern void
 nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
-                    void *                         event,
+                    unsigned int                   event,
+                    void *                         data,
                     struct nlif_obsrv_notifier *   notifier);
 
 extern int
@@ -136,6 +139,19 @@ nlif_store_enable_notif(struct nlif_store * store, struct nlif_gate * gate);
 
 extern void
 nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate);
+
+enum nlif_store_event {
+	NLIF_STORE_IFACE_CHANGE_EVT = 0,
+	NLIF_STORE_EVT_NR
+};
+
+extern void
+nlif_store_subscribe(struct nlif_store *            store,
+                     struct nlif_obsrv_subscriber * subscriber);
+
+extern void
+nlif_store_unsubscribe(struct nlif_store *            store,
+                       struct nlif_obsrv_subscriber * subscriber);
 
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 
