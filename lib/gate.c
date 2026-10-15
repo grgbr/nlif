@@ -38,27 +38,6 @@ nlif_gate_islink_valid(const struct rt_link_getlink_rsp * link)
 	return 0;
 }
 
-int
-nlif_gate_setlink(const struct nlif_gate *     gate,
-                  struct rt_link_setlink_req * request)
-{
-	nlif_gate_assert(gate);
-	nlif_assert(request);
-	nlif_assert(request->_hdr.ifi_index);
-
-	int err;
-
-	/* Set interface data. */
-	err = rt_link_setlink(gate->sock, request);
-	if (!err)
-		return 0;
-
-	nlif_info("[%d]: cannot set link: %s.", request->_hdr.ifi_index,
-	          gate->sock->err.msg);
-
-	return nlif_ynl_err(&gate->sock->err);
-}
-
 #if 0
 static void
 nlif_gate_make_error(struct ynl_error *  error,
@@ -91,7 +70,7 @@ nlif_gate_getlink(const struct nlif_gate *      gate,
 	/* Acquire interface data. */
 	lnk = rt_link_getlink(gate->sock, request);
 	if (!lnk) {
-		nlif_info("cannot fetch link: %s.", gate->sock->err.msg);
+		nlif_notice("cannot fetch link: %s.", gate->sock->err.msg);
 		return nlif_ynl_err(&gate->sock->err);
 	}
 
@@ -101,13 +80,35 @@ nlif_gate_getlink(const struct nlif_gate *      gate,
 		return 0;
 	}
 
-	nlif_warn("'%s[%d]': cannot load link: inconsistent attributes.",
-	          lnk->ifname,
-	          lnk->_hdr.ifi_index);
+	nlif_notice("%s[%d]: cannot load link: inconsistent attributes.",
+	            lnk->ifname,
+	            lnk->_hdr.ifi_index);
 
 	rt_link_getlink_rsp_free(lnk);
 
 	return err;
+}
+
+int
+nlif_gate_setlink(const struct nlif_gate *     gate,
+                  struct rt_link_setlink_req * request)
+{
+	nlif_gate_assert(gate);
+	nlif_assert(request);
+	nlif_assert(request->_hdr.ifi_index);
+
+	int err;
+
+	/* Set interface data. */
+	err = rt_link_setlink(gate->sock, request);
+	if (!err)
+		return 0;
+
+	nlif_notice("[%d]: cannot set link: %s.",
+	            request->_hdr.ifi_index,
+	            gate->sock->err.msg);
+
+	return nlif_ynl_err(&gate->sock->err);
 }
 
 int
@@ -197,13 +198,13 @@ nlif_gate_load_links(const struct nlif_gate *      gate,
 
 	lst = rt_link_getlink_dump(gate->sock, req);
 	if (!lst) {
-		nlif_warn("cannot dump links: %s.", gate->sock->err.msg);
+		nlif_notice("cannot dump links: %s.", gate->sock->err.msg);
 		ret = nlif_ynl_err(&gate->sock->err);
 		goto free_req;
 	}
 
 	if (ynl_dump_empty(lst)) {
-		nlif_warn("no available link.");
+		nlif_notice("no available link.");
 		ret = -ENODEV;
 		goto free_lst;
 	}
@@ -211,10 +212,10 @@ nlif_gate_load_links(const struct nlif_gate *      gate,
 	ynl_dump_foreach(lst, lnk) {
 		ret = nlif_gate_islink_valid(lnk);
 		if (ret) {
-			nlif_warn("'%s[%d]': cannot load link: "
-			          "inconsistent attributes.",
-			          lnk->ifname,
-			          lnk->_hdr.ifi_index);
+			nlif_notice("%s[%d]: cannot load link: "
+			            "inconsistent attributes.",
+			            lnk->ifname,
+			            lnk->_hdr.ifi_index);
 			continue;
 		}
 
@@ -253,8 +254,8 @@ nlif_gate_subscribe(struct nlif_gate *             gate,
 		               NETLINK_ADD_MEMBERSHIP,
 		               &grp,
 		               sizeof(grp))) {
-			nlif_warn("cannot join netlink multicast group: %s.",
-			          strerror(errno));
+			nlif_notice("cannot join netlink multicast group: %s.",
+			            strerror(errno));
 			return -errno;
 		}
 
@@ -319,11 +320,11 @@ nlif_gate_notify(struct nlif_gate * gate)
 				nlif_obsrv_notify(&gate->notif, lnk);
 			}
 			else {
-				nlif_warn("'%s[%d]': "
-				          "invalid link notification: "
-				          "inconsistent attributes.",
-				          lnk->ifname,
-				          lnk->_hdr.ifi_index);
+				nlif_notice("%s[%d]: "
+				            "invalid link notification: "
+				            "inconsistent attributes.",
+				            lnk->ifname,
+				            lnk->_hdr.ifi_index);
 			}
 		}
 

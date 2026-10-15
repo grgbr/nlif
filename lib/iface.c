@@ -48,6 +48,10 @@ nlif_iface_fill(struct nlif_iface *                interface,
 	interface->max_mtu = link->max_mtu;
 
 	memcpy(&interface->hwadr, link->address, sizeof(interface->hwadr));
+
+	nlif_debug("%s[%u]: interface synchronized.",
+	           interface->name,
+	           interface->idx);
 }
 
 static int
@@ -65,6 +69,9 @@ _nlif_iface_load_byidx(struct nlif_iface *      interface,
 	err = nlif_gate_load_link_byidx(gate, index, &lnk);
 	if (err) {
 		interface->state = NLIF_INVALID_STAT;
+		nlif_warn("[%u]: cannot load interface by index: %s.",
+		          index,
+		          strerror(-err));
 		return err;
 	}
 
@@ -276,9 +283,9 @@ nlif_iface_set_group(struct nlif_iface * interface, unsigned int group)
 		return ret;
 
 	if (group != interface->group) {
-		interface->group = group;
 		interface->state = NLIF_DIRTY_STAT;
 		stroll_bmap_set(&interface->dirty_fields, NLIF_GROUP_IFACE_FLD);
+		interface->group = group;
 	}
 
 	return 0;
@@ -314,6 +321,7 @@ nlif_iface_set_admstate(struct nlif_iface * interface, bool up)
 		return ret;
 
 	if ((interface->flags & IFF_UP) != msk) {
+		interface->state = NLIF_DIRTY_STAT;
 		interface->flags &= ~IFF_UP;
 		interface->flags |= msk;
 		interface->dirty_flags |= IFF_UP;
@@ -491,10 +499,10 @@ nlif_iface_set_mtu(struct nlif_iface * interface, unsigned int mtu)
 	if (mtu != interface->mtu) {
 		ret = nlif_iface_validate_mtu(mtu, interface);
 		if (!ret) {
-			interface->mtu = mtu;
 			interface->state = NLIF_DIRTY_STAT;
 			stroll_bmap_set(&interface->dirty_fields,
 			                NLIF_MTU_IFACE_FLD);
+			interface->mtu = mtu;
 		}
 	}
 
@@ -593,13 +601,14 @@ nlif_iface_refresh_state(struct nlif_iface *                interface,
 	nlif_assert(!nlif_gate_islink_valid(link));
 	nlif_assert(interface->idx == (unsigned int)link->_hdr.ifi_index);
 
-	if (!interface->dirty_fields)
-		interface->state = NLIF_CLEAN_STAT;
-
-	interface->flags = link->_hdr.ifi_flags;
-	stroll_bmap_clear_all(&interface->dirty_flags);
+	interface->flags &= ~IFF_VOLATILE;
+	interface->flags |= link->_hdr.ifi_flags & IFF_VOLATILE;
 	interface->opstat = link->operstate;
 	interface->lnkmod = link->linkmode;
+
+	nlif_info("%s[%u]: operational state changed.",
+	          interface->name,
+	          interface->idx);
 }
 
 void
@@ -662,6 +671,9 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
 	err = nlif_gate_load_link_byname(gate, name, &lnk);
 	if (err) {
 		interface->state = NLIF_INVALID_STAT;
+		nlif_warn("%s: cannot load interface by name: %s.",
+		          name,
+		          strerror(-err));
 		return err;
 	}
 
@@ -679,12 +691,13 @@ nlif_iface_apply(struct nlif_iface * interface)
 	nlif_iface_assert(interface);
 	nlif_assert(interface->state != NLIF_INVALID_STAT);
 
+	int ret = 0;
+
 	if (interface->state == NLIF_DIRTY_STAT) {
 		nlif_assert(interface->dirty_fields ||
 		            interface->dirty_flags);
 
 		struct rt_link_setlink_req * req;
-		int                          ret;
 
 		req = nlif_gate_create_setlink_req();
 		nlif_assert(req);
@@ -739,15 +752,24 @@ nlif_iface_apply(struct nlif_iface * interface)
 			interface->state = NLIF_CLEAN_STAT;
 			stroll_bmap_clear_all(&interface->dirty_fields);
 			stroll_bmap_clear_all(&interface->dirty_flags);
-			return 0;
+
+			nlif_debug("'%s[%u]: interface settings applied.",
+			           interface->name,
+			           interface->idx);
+			ret = 1;
 		}
-		else
+		else {
 			interface->state = NLIF_INVALID_STAT;
 
-		return ret;
+			nlif_warn("%s[%u]: "
+			          "cannot apply interface settings: %s",
+			          interface->name,
+			          interface->idx,
+			          strerror(-ret));
+		}
 	}
-	else
-		return 0;
+
+	return ret;
 }
 
 void

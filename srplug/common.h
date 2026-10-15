@@ -177,6 +177,43 @@
 
 #endif /* defined(CONFIG_SRPLUG_LOG) */
 
+/**
+ * Configuration data change handler function signature.
+ */
+typedef sr_error_t srplug_handle_change_fn(const struct lyd_node *,
+                                           sr_change_oper_t,
+                                           const char *,
+                                           void *);
+
+/**
+ * Iterate over configuration data changes related to the XPATH given in
+ * argument and handle them.
+ */
+extern sr_error_t
+srplug_handle_changes(sr_session_ctx_t *        session,
+                      const char *              xpath,
+                      srplug_handle_change_fn * handle,
+                      void *                    data);
+
+/**
+ * Configuration data change HaNDLeR.
+ */
+struct srplug_change_hndlr {
+	const char *              name;
+	srplug_handle_change_fn * handle;
+};
+
+/**
+ * Process configuration data changes related to XPATH direct children according
+ * to handlers given in argument.
+ */
+extern sr_error_t
+srplug_process_child_changes(sr_session_ctx_t *                 session,
+                             const char *                       xpath,
+                             const struct srplug_change_hndlr * handlers,
+                             unsigned int                       nr,
+                             void *                             data);
+
 struct srplug_change_sub {
 	const char *        module;
 	const char *        xpath;
