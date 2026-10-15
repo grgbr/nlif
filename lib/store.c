@@ -34,7 +34,7 @@ nlif_store_search_iface_byname(const struct nlif_store * store,
 	stroll_hlist_foreach_entry(&store->nameh[hash], hndl, nameh) {
 		nlif_store_assert_hndl(hndl);
 
-		if (!strcmp(name, nlif_iface_name(hndl->iface)))
+		if (!strcmp(name, hndl->iface->name))
 			return hndl->iface;
 	}
 
@@ -69,9 +69,9 @@ nlif_store_search_iface_byalias(const struct nlif_store * store,
 	stroll_hlist_foreach_entry(&store->aliash[hash], hndl, aliash) {
 		nlif_store_assert_hndl(hndl);
 
-		const char * als = nlif_iface_alias(hndl->iface);
+		const char * als = hndl->iface->alias;
 
-		if (!strcmp(alias, als))
+		if (als && !strcmp(alias, als))
 			return hndl->iface;
 	}
 
@@ -137,7 +137,7 @@ nlif_store_search_iface_hndl_byindex(const struct nlif_store * store,
 	stroll_hlist_foreach_entry(&store->indxh[hash], hndl, indxh) {
 		nlif_store_assert_hndl(hndl);
 
-		if (index == nlif_iface_index(hndl->iface))
+		if (index == hndl->iface->idx)
 			return hndl;
 	}
 
@@ -165,10 +165,9 @@ static bool
 nlif_store_match_iface_bystrid(const struct nlif_iface * interface,
                                const char *              strid)
 {
-	const char * als = nlif_iface_alias(interface);
+	const char * als = interface->alias;
 
-	return (!strcmp(strid, nlif_iface_name(interface))) ||
-	        (als && !strcmp(strid, als));
+	return !strcmp(strid, interface->name) || (als && !strcmp(strid, als));
 }
 
 static bool
@@ -230,7 +229,7 @@ nlif_store_may_register_iface_index(struct nlif_store *    store,
 	stroll_hlist_foreach_entry(&store->indxh[hash], hndl, indxh) {
 		nlif_store_assert_hndl(hndl);
 
-		if (index == nlif_iface_index(hndl->iface))
+		if (index == hndl->iface->idx)
 			return false;
 	}
 
@@ -257,6 +256,8 @@ nlif_store_createn_enroll_iface_hndl(struct nlif_store *   store,
 
 	if (alias_buck)
 		stroll_hlist_add(alias_buck, &hndl->aliash);
+	else
+		stroll_hlist_init_node(&hndl->aliash);
 
 	stroll_dlist_nqueue_back(&store->ifaces, &hndl->list);
 
@@ -276,16 +277,16 @@ nlif_store_enroll_iface(struct nlif_store * store,
 	struct stroll_hlist * aliasb = NULL;
 
 	if (!nlif_store_may_register_iface_name(store,
-	                                        nlif_iface_name(interface),
+	                                        interface->name,
 	                                        &nameb))
 		return -EEXIST;
 
 	if (!nlif_store_may_register_iface_index(store,
-	                                         nlif_iface_index(interface),
+	                                         interface->idx,
 	                                         &indxb))
 		return -EEXIST;
 
-	strid = nlif_iface_alias(interface);
+	strid = interface->alias;
 	if (strid) {
 		if (!nlif_store_may_register_iface_alias(store, strid, &aliasb))
 			return -EEXIST;
@@ -310,20 +311,17 @@ nlif_store_withdraw_iface(struct nlif_store *       store,
 	nlif_iface_assert(interface);
 
 	if (store->count) {
-		unsigned int             index;
+		unsigned int             idx;
 		struct nlif_store_hndl * hndl;
 
-		index = nlif_iface_index(interface);
-		hndl = nlif_store_search_iface_hndl_byindex(store, index);
+		idx = interface->idx;
+		hndl = nlif_store_search_iface_hndl_byindex(store, idx);
 		if (hndl) {
 			nlif_assert(hndl->iface == interface);
 
-			const char * als = nlif_iface_alias(interface);
-
 			stroll_hlist_del(&hndl->nameh);
 			stroll_hlist_del(&hndl->indxh);
-			if (als)
-				stroll_hlist_del(&hndl->aliash);
+			stroll_hlist_del(&hndl->aliash);
 			stroll_dlist_remove(&hndl->list);
 
 			nlif_store_free_hndl(hndl);
@@ -338,7 +336,7 @@ nlif_store_withdraw_iface(struct nlif_store *       store,
 }
 
 static int
-nlif_store_on_link_loaded(const struct nlif_gate *     gate __unused,
+nlif_store_on_link_loaded(const struct nlif_gate *     gate,
                           struct rt_link_getlink_rsp * link,
                           void *                       data)
 {
@@ -386,7 +384,7 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate __unused,
 		nlif_assert(aliasb);
 	}
 
-	nlif_iface_create_bylink(link, &iface);
+	nlif_iface_create_bylink(link, gate, &iface);
 	nlif_store_createn_enroll_iface_hndl(store,
 	                                     iface,
 	                                     indxb,

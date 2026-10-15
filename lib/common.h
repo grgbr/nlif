@@ -93,6 +93,9 @@ nlif_free(void * mem)
 }
 
 extern char *
+nlif_dup_str(const char * string);
+
+extern char *
 nlif_clone_str(const char * string, size_t length);
 
 static inline int
@@ -118,5 +121,12 @@ extern char *
 nlif_nozero_str(unsigned int uint, char string[NLIF_UINT_STRSZ]);
 
 #endif /* defined(CONFIG_NLIF_PRINT) */
+
+enum nlif_state {
+	NLIF_INVALID_STAT = 0,
+	NLIF_CLEAN_STAT,
+	NLIF_DIRTY_STAT,
+	NLIF_STAT_NR
+};
 
 #endif /* _NLIF_COMMON_H */
