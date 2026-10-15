@@ -54,7 +54,7 @@ nlifd_iface_type_str(const struct nlif_iface * interface)
 	return NULL;
 }
 
-static int
+static sr_error_t
 nlifd_iface_new_entry(const struct ly_ctx *     context,
                       struct lyd_node *         container,
                       const struct nlif_iface * interface,
@@ -77,6 +77,7 @@ nlifd_iface_new_entry(const struct ly_ctx *     context,
 	if (ret != SR_ERR_OK)
 		return ret;
 
+	/* TODO: replace "false" with default schema value if existing. */
 	ret = srplug_lyd_create_leaf(ent, "enabled", "false", NULL);
 	if (ret != SR_ERR_OK)
 		return ret;
@@ -142,6 +143,33 @@ free:
 	return NULL;
 }
 
+static struct nlif_iface *
+nlifd_iface_from_term(const struct lyd_node *  term,
+                      const struct nlif_repo * repository)
+{
+	nlif_assert(term);
+	nlif_assert(term->schema);
+	nlif_assert(term->schema->nodetype & LYD_NODE_TERM);
+
+	const struct lyd_node *   entry = lyd_parent(term);
+	char                      name[IFNAMSIZ];
+	const struct nlif_store * store = nlif_repo_store(repository);
+	struct nlif_iface *       iface;
+
+	if (!nlifd_iface_name_from_node(entry, name)) {
+		srplug_node_info(entry, "invalid interface path");
+		return NULL;
+	}
+
+	iface = nlif_store_find_iface_byname(store, name);
+	if (!iface) {
+		srplug_info("'%s': no such interface", name);
+		return NULL;
+	}
+
+	return iface;
+}
+
 #if 0
 static int
 nlifd_on_iface_get_admin_status(sr_session_ctx_t * session,
@@ -155,6 +183,7 @@ nlifd_on_iface_get_admin_status(sr_session_ctx_t * session,
 {
 	nlif_assert(*parent);
 	nlif_assert(!strcmp(LYD_NAME(*parent), "interface"));
+	nlif_repo_assert(repository);
 
 	char                      name[IFNAMSIZ];
 	const struct nlif_iface * iface;
@@ -203,102 +232,177 @@ static const struct srplug_sub nlifd_iface_admin_status_sub = {
 };
 #endif
 
-static int
-nlifd_on_iface_change(sr_session_ctx_t * session __unused,
-                      uint32_t           sub_id __unused,
-                      const char *       module __unused,
-                      const char *       xpath,
-                      sr_event_t         event,
-                      uint32_t           request_id __unused,
-                      void *             repository __unused)
-{
-	switch (event) {
-	case SR_EV_CHANGE:
-		srplug_debug("%s: changes", xpath);
-		return SR_ERR_CALLBACK_FAILED;
-
-	case SR_EV_DONE:
-		srplug_debug("%s: done", xpath);
-		return SR_ERR_OK;
-
-	case SR_EV_ABORT:
-		srplug_info("'%s': changes aborted", xpath);
-		return SR_ERR_OK;
-
-	case SR_EV_UPDATE:
-	case SR_EV_ENABLED:
-	case SR_EV_RPC:
-	default:
-		nlif_assert(0);
-	}
-}
-
-#if 0
-static int
-nlifd_on_iface_root_change(sr_session_ctx_t * session,
+static sr_error_t
+nlifd_on_iface_type_change(sr_session_ctx_t * session __unused,
                            uint32_t           sub_id __unused,
                            const char *       module __unused,
-                           const char *       xpath __unused,
+                           const char *       xpath,
                            sr_event_t         event,
                            uint32_t           request_id __unused,
                            void *             repository __unused)
 {
-	nlif_assert(session);
-	nlif_assert(!strcmp(module, NLIFD_IETF_IFACE_YANG_MODULE));
-	nlif_assert(!strcmp(xpath, NLIFD_IETF_IFACE_YANG_ROOT_PATH));
-	nlif_assert(repository);
-
 	switch (event) {
 	case SR_EV_ENABLED:
-		{
-			const struct ly_ctx *          ctx;
-			struct lyd_node *              top;
-			const struct nlif_store_hndl * hndl;
-			const struct nlif_iface *      iface;
-			int                            ret;
+		srplug_debug("%s: SR_EV_ENABLED", xpath);
+		return SR_ERR_OK;
 
-			ret = srplug_lyd_acquire_context(session, &ctx);
-			if (ret != SR_ERR_OK)
-				return ret;
-
-			ret = srplug_lyd_create_container(
-				ctx,
-				NULL,
-				NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-				&top);
-
-			nlif_store_foreach_iface(nlif_repo_store(repository),
-			                         hndl,
-			                         iface) {
-				ret = nlifd_iface_new_entry(ctx,
-				                            top,
-				                            iface,
-				                            NULL);
-				if (ret)
-					break;
-			}
-
-			srplug_lyd_release_context(session);
-
-			return ret;
-		}
+	case SR_EV_CHANGE:
+		srplug_debug("%s: SR_EV_CHANGE", xpath);
+		return SR_ERR_OK;
 
 	case SR_EV_DONE:
-		nlif_debug("changes: %d", sr_has_changes(session));
+		srplug_debug("%s: SR_EV_DONE", xpath);
 		return SR_ERR_OK;
 
 	case SR_EV_ABORT:
-	case SR_EV_CHANGE:
+		srplug_info("'%s': SR_EV_ABORT", xpath);
+		return SR_ERR_OK;
+
 	case SR_EV_UPDATE:
 	case SR_EV_RPC:
 	default:
 		nlif_assert(0);
-		return SR_ERR_INTERNAL;
 	}
 }
-#endif
 
-static int
+static sr_error_t
+nlifd_iface_change_admstate(const struct lyd_node * node,
+                            sr_change_oper_t        oper,
+                            struct nlif_iface *     interface)
+{
+	nlif_assert(node);
+	nlif_iface_assert(interface);
+
+	bool val;
+	int  ret;
+
+	switch (oper) {
+	case SR_OP_CREATED:
+	case SR_OP_MODIFIED:
+		val = srplug_lyd_node_as_bool(node);
+		break;
+
+	case SR_OP_DELETED:
+		if (srplug_lyd_node_dflt_as_bool(node, &val) != SR_ERR_OK)
+			val = false;
+		break;
+
+	case SR_OP_MOVED:
+	default:
+		srplug_assert(0);
+	}
+
+	nlif_iface_set_admstate(interface, val);
+	ret = nlif_iface_save(interface);
+	if (!ret) {
+		srplug_debug("'%s': interface set %s",
+		             nlif_iface_name(interface),
+		             val ? "up" : "down");
+		return SR_ERR_OK;
+	}
+
+	srplug_notice("'%s': cannot set interface %s: %s",
+	              nlif_iface_name(interface),
+	              val ? "up" : "down",
+	              strerror(-ret));
+
+	return SR_ERR_CALLBACK_FAILED;
+}
+
+static sr_error_t
+nlifd_iface_change_enabled(sr_session_ctx_t * session,
+                           const char *       xpath,
+                           struct nlif_repo * repository)
+{
+	nlif_assert(session);
+	nlif_assert(xpath);
+	nlif_assert(xpath[0]);
+	nlif_repo_assert(repository);
+
+	sr_change_iter_t *      iter;
+	sr_change_oper_t        oper;
+	const struct lyd_node * node;
+	int                     ret;
+
+	ret = sr_get_changes_iter(session, xpath, &iter);
+	if (ret != SR_ERR_OK) {
+		srplug_assert(ret != SR_ERR_INVAL_ARG);
+
+		if (ret == SR_ERR_NO_MEMORY)
+			abort();
+
+		return ret;
+	}
+
+	ret = sr_get_change_tree_next(session,
+	                              iter,
+	                              &oper,
+	                              &node,
+	                              NULL,
+	                              NULL,
+	                              NULL);
+	while (ret == SR_ERR_OK) {
+		struct nlif_iface * iface;
+
+		iface = nlifd_iface_from_term(node, repository);
+		if (!iface) {
+			ret = SR_ERR_NOT_FOUND;
+			goto err;
+		}
+
+		ret = nlifd_iface_change_admstate(node, oper, iface);
+		if (ret != SR_ERR_OK)
+			goto err;
+
+		ret = sr_get_change_tree_next(session,
+		                              iter,
+		                              &oper,
+		                              &node,
+		                              NULL,
+		                              NULL,
+		                              NULL);
+	}
+
+	sr_free_change_iter(iter);
+
+	return SR_ERR_OK;
+
+err:
+	sr_free_change_iter(iter);
+
+	return ret;
+}
+
+static sr_error_t
+nlifd_on_iface_enabled_change(sr_session_ctx_t * session,
+                              uint32_t           sub_id __unused,
+                              const char *       module __unused,
+                              const char *       xpath,
+                              sr_event_t         event,
+                              uint32_t           request_id __unused,
+                              void *             repository)
+{
+	switch (event) {
+	case SR_EV_CHANGE:
+		return nlifd_iface_change_enabled(session, xpath, repository);
+
+	case SR_EV_DONE:
+		srplug_debug("%s: SR_EV_DONE", xpath);
+		return SR_ERR_OK;
+
+	case SR_EV_ABORT:
+		srplug_info("'%s': SR_EV_ABORT", xpath);
+		return SR_ERR_OK;
+
+	case SR_EV_ENABLED:
+	case SR_EV_UPDATE:
+	case SR_EV_RPC:
+	default:
+		nlif_assert(0);
+	}
+}
+
+static sr_error_t
 nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
                          const struct ly_ctx *    context,
                          const struct nlif_repo * repository)
@@ -310,43 +414,49 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	struct lyd_node *              top;
 	const struct nlif_store_hndl * hndl;
 	const struct nlif_iface *      iface;
-	int                            ret;
+	int                            err;
 
-	ret = srplug_lyd_create_container(context,
+	err = srplug_lyd_create_container(context,
 	                                  NULL,
 	                                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
 	                                  &top);
-	if (ret)
-		return ret;
+	if (err)
+		return err;
 
 	nlif_store_foreach_iface(nlif_repo_store(repository), hndl, iface) {
-		ret = nlifd_iface_new_entry(context, top, iface, NULL);
-		if (ret)
+		err = nlifd_iface_new_entry(context, top, iface, NULL);
+		if (err)
 			goto free;
 	}
 
-	//sr_edit_batch()
-	//sr_apply_changes()
-	//sr_validate()
-	ret = srplug_replace_dstore(session, NLIFD_IETF_IFACE_YANG_MODULE, top);
+	/*
+	 * Here, `top' tree ownership is transfered to srplug_replace_dstore()
+	 * so that it will be freed once it has returned thanks to a call to
+	 * lyd_free_all().
+	 * This means we are not requested to call lyd_free_tree() on it from
+	 * now on.
+	 */
+	return srplug_replace_dstore(session,
+	                             NLIFD_IETF_IFACE_YANG_MODULE,
+	                             top);
 
 free:
 	lyd_free_tree(top);
 
-	return ret;
+	return err;
 }
 
 static const struct srplug_sub nlifd_subs[] = {
 #if 0
 	SRPLUG_CHANGE_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
-	                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-	                  nlifd_on_iface_root_change,
+	                  NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface/type",
+	                  nlifd_on_iface_type_change,
 	                  0,
-	                  SR_SUBSCR_ENABLED),
+	                  SR_SUBSCR_DEFAULT/* SR_SUBSCR_ENABLED*/),
 #endif
 	SRPLUG_CHANGE_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
-	                  NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
-	                  nlifd_on_iface_change,
+	                  NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface/enabled",
+	                  nlifd_on_iface_enabled_change,
 	                  0,
 	                  SR_SUBSCR_DEFAULT)
 };
@@ -438,14 +548,14 @@ main(int argc, char * argv[])
 	if (ret)
 		goto close_dmn;
 
+	ret = nlifd_load(&dmn, &repo);
+	if (ret)
+		goto close_repo;
+
 	ret = srplug_daemon_subscribe_all(&dmn,
 	                                  nlifd_subs,
 	                                  stroll_array_nr(nlifd_subs),
 	                                  &repo);
-	if (ret)
-		goto close_repo;
-
-	ret = nlifd_load(&dmn, &repo);
 	if (ret)
 		goto close_repo;
 

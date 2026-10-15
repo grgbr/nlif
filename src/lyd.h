@@ -164,22 +164,78 @@
 
 #endif /* defined(CONFIG_SRPLUG_LOG) */
 
+/******************************************************************************
+ * Yang data node value manipulation.
+ ******************************************************************************/
+
+static inline const struct lyd_value *
+srplug_lyd_node_value(const struct lyd_node * node)
+{
+	srplug_assert(node);
+	srplug_assert(node->schema);
+	srplug_assert(node->schema->nodetype & LYD_NODE_TERM);
+
+	return &((const struct lyd_node_term *)node)->value;
+}
+
+static inline const char *
+srplug_lyd_node_dflt(const struct lyd_node * node)
+{
+	srplug_assert(node);
+	srplug_assert(node->schema);
+	srplug_assert(node->schema->nodetype == LYS_LEAF);
+
+	const struct lysc_node_leaf * leaf = (const struct lysc_node_leaf *)
+	                                     node->schema;
+	return leaf->dflt.str;
+}
+
+static inline LY_DATA_TYPE
+srplug_lyd_value_type(const struct lyd_value * value)
+{
+	srplug_assert(value);
+	srplug_assert(value->realtype);
+
+	return value->realtype->basetype;
+}
+
+static inline bool
+srplug_lyd_value_as_bool(const struct lyd_value * value)
+{
+	srplug_assert(srplug_lyd_value_type(value) == LY_TYPE_BOOL);
+
+	return (bool)value->boolean;
+}
+
+static inline bool
+srplug_lyd_node_as_bool(const struct lyd_node * node)
+{
+	return srplug_lyd_value_as_bool(srplug_lyd_node_value(node));
+}
+
+extern sr_error_t
+srplug_lyd_node_dflt_as_bool(const struct lyd_node * node, bool * value);
+
+/******************************************************************************
+ * Yang data node manipulation.
+ ******************************************************************************/
+
 extern char *
 srplug_lyd_path(const struct lyd_node * node);
 
-extern int
+extern sr_error_t
 srplug_lyd_create_container(const struct ly_ctx * context,
                             struct lyd_node *     parent,
                             const char *          path,
                             struct lyd_node **    container);
 
-extern int
+extern sr_error_t
 srplug_lyd_create_list_ent(const struct ly_ctx * context,
                            struct lyd_node *     parent,
                            const char *          path,
                            struct lyd_node **    entry);
 
-extern int
+extern sr_error_t
 srplug_lyd_create_list_keyent(const struct ly_ctx * context,
                               struct lyd_node *     parent,
                               const char *          path,
@@ -187,23 +243,38 @@ srplug_lyd_create_list_keyent(const struct ly_ctx * context,
                               const char *          value,
                               struct lyd_node **    entry);
 
-extern int
+extern sr_error_t
 srplug_lyd_create_leaf(struct lyd_node *  parent,
                        const char *       path,
                        const char *       value,
                        struct lyd_node ** leaf);
 
-extern int
+/******************************************************************************
+ * Session context and datastore manipulation.
+ ******************************************************************************/
+
+extern sr_error_t
 srplug_lyd_acquire_context(sr_session_ctx_t *     session,
                            const struct ly_ctx ** context);
 
-extern void
-srplug_lyd_release_context(sr_session_ctx_t * session);
+static inline void
+srplug_lyd_release_context(sr_session_ctx_t * session)
+{
+	srplug_assert(session);
+
+	sr_session_release_context(session);
+}
 
 extern const char *
 srplug_dstore_str(sr_datastore_t ds);
 
-extern int
+/*
+ * Replace an entire sysrepo datastore with the data tree given in argument.
+ *
+ * Note that `tree' data tree will be freed once this function call has
+ * returned.
+ */
+extern sr_error_t
 srplug_replace_dstore(sr_session_ctx_t * session,
                       const char *       module,
                       struct lyd_node *  tree);

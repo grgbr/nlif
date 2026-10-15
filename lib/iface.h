@@ -112,6 +112,14 @@ nlif_iface_admstate(const struct nlif_iface * interface)
 	return nlif_iface_flags(interface) & IFF_UP;
 }
 
+static inline void
+nlif_iface_set_admstate(struct nlif_iface * interface, bool up)
+{
+	nlif_iface_assert(interface);
+
+	nlif_err("%s: IMPLEMENT ME!", __func__);
+}
+
 /*
  * RFC 2863 operational status.
  *
@@ -289,6 +297,16 @@ extern int
 nlif_iface_load_byname(struct nlif_iface *      interface,
                        const char *             name,
                        const struct nlif_gate * gate);
+
+static inline int
+nlif_iface_save(struct nlif_iface * interface)
+{
+	nlif_iface_assert(interface);
+
+	nlif_err("%s: IMPLEMENT ME!", __func__);
+
+	return -ENOSYS;
+}
 
 extern void
 nlif_iface_fini(struct nlif_iface * interface);

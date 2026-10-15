@@ -4,6 +4,22 @@
 
 #warning TODO: use srplg_log_errinfo() to push errors to clients.
 
+sr_error_t
+srplug_lyd_node_dflt_as_bool(const struct lyd_node * node, bool * value)
+{
+	srplug_assert(srplug_lyd_value_type(srplug_lyd_node_value(node)) ==
+	              LY_TYPE_BOOL);
+
+	const char * dflt = srplug_lyd_node_dflt(node);
+
+	if (dflt) {
+		*value = (!strcmp(dflt, "true")) ? true : false;
+		return SR_ERR_OK;
+	}
+
+	return SR_ERR_NOT_FOUND;
+}
+
 char *
 srplug_lyd_path(const struct lyd_node * node)
 {
@@ -51,7 +67,7 @@ srplug_lyd_new_path(const struct ly_ctx * context,
 	return err;
 }
 
-int
+sr_error_t
 srplug_lyd_create_container(const struct ly_ctx * context,
                             struct lyd_node *     parent,
                             const char *          path,
@@ -81,7 +97,7 @@ srplug_lyd_create_container(const struct ly_ctx * context,
 	return SR_ERR_OK;
 }
 
-int
+sr_error_t
 srplug_lyd_create_list_ent(const struct ly_ctx * context,
                            struct lyd_node *     parent,
                            const char *          path,
@@ -111,7 +127,7 @@ srplug_lyd_create_list_ent(const struct ly_ctx * context,
 	return SR_ERR_OK;
 }
 
-int
+sr_error_t
 srplug_lyd_create_list_keyent(const struct ly_ctx * context,
                               struct lyd_node *     parent,
                               const char *          path,
@@ -165,7 +181,7 @@ free:
 	return SR_ERR_OK;
 }
 
-int
+sr_error_t
 srplug_lyd_create_leaf(struct lyd_node *  parent,
                        const char *       path,
                        const char *       value,
@@ -194,7 +210,7 @@ srplug_lyd_create_leaf(struct lyd_node *  parent,
 	return SR_ERR_OK;
 }
 
-int
+sr_error_t
 srplug_lyd_acquire_context(sr_session_ctx_t *     session,
                            const struct ly_ctx ** context)
 {
@@ -223,14 +239,6 @@ srplug_lyd_acquire_context(sr_session_ctx_t *     session,
 	return SR_ERR_OK;
 }
 
-void
-srplug_lyd_release_context(sr_session_ctx_t * session)
-{
-	srplug_assert(session);
-
-	sr_session_release_context(session);
-}
-
 const char *
 srplug_dstore_str(sr_datastore_t ds)
 {
@@ -256,7 +264,7 @@ srplug_dstore_str(sr_datastore_t ds)
 	}
 }
 
-int
+sr_error_t
 srplug_replace_dstore(sr_session_ctx_t * session,
                       const char *       module,
                       struct lyd_node *  tree)
