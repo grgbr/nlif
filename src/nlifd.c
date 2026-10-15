@@ -295,7 +295,7 @@ nlifd_create_stdlog(const struct nlifd_conf * config)
 #define NLIFD_USAGE_STDLOG_OPTS \
 "\n" \
 "    --stdlog-level=SEVERITY    -- set console log verbosity level to SEVERITY\n" \
-"                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_STDLOG_SEVERITY) ")"
+"                                  (defaults to `" CONFIG_NLIF_DAEMON_STDLOG_SEVERITY_STRING "')"
 
 #else  /* !defined(CONFIG_NLIF_DAEMON_STDLOG) */
 
@@ -375,12 +375,10 @@ nlifd_create_syslog(const struct nlifd_conf * config __unused)
 	return NULL;
 }
 
-#warning Replace STROLL_STRING() usage with appropriate replacement for facilities
-
 #define NLIFD_USAGE_SYSLOG_OPTS \
 "\n" \
 "    --syslog-level=SEVERITY    -- set syslog verbosity level to SEVERITY\n" \
-"                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY) ")\n" \
+"                                  (defaults to `" CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY_STRING "')\n" \
 "    --syslog-facitily=FACILITY -- log messages to syslog using FACILITY\n" \
 "                                  (defaults to `" CONFIG_NLIF_DAEMON_SYSLOG_FACILITY_STRING "')"
 
@@ -543,7 +541,7 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 #if defined(CONFIG_NLIF_DAEMON_STDLOG)
 	struct elog_parse                    stdlog_parse;
 	static const struct elog_stdio_conf  stdlog_dflt_conf = {
-		.super.severity = CONFIG_NLIF_DAEMON_STDLOG_SEVERITY,
+		.super.severity = CONFIG_NLIF_DAEMON_STDLOG_SEVERITY_VALUE,
 		.format         = ELOG_TAG_FMT
 	};
 #endif /* defined(CONFIG_NLIF_DAEMON_STDLOG) */
@@ -551,7 +549,7 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 #if defined(CONFIG_NLIF_DAEMON_SYSLOG)
 	struct elog_parse                    syslog_parse;
 	static const struct elog_syslog_conf syslog_dflt_conf = {
-		.super.severity = CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY,
+		.super.severity = CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY_VALUE,
 		.format         = ELOG_TAG_FMT | ELOG_PID_FMT,
 		.facility       = CONFIG_NLIF_DAEMON_SYSLOG_FACILITY_VALUE
 	};

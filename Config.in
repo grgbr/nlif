@@ -58,20 +58,70 @@ config NLIF_DAEMON
 config NLIF_DAEMON_STDLOG
 	bool "STDIO logging"
 	depends on NLIF_DAEMON && NLIF_LOG
-	default y
+	default n
 	help
 	  Build nlif with support for logging messages to stdio(3)
 	  streams.
 
-config NLIF_DAEMON_STDLOG_SEVERITY
-	int "STDIO logging default severity"
+choice
+	prompt "STDIO logging default severity"
 	depends on NLIF_DAEMON_STDLOG
-	range 0 7
-	default 3
+	default NLIF_DAEMON_STDLOG_SEVERITY_WARNING
 	help
 	  By default, nlifd daemon logging messages with severity greater that
 	  this won't be sent to stdio(3) stream logger.
 	  See syslog(3) levels for more informations about available severities.
+
+config NLIF_DAEMON_STDLOG_SEVERITY_EMERG
+	bool "emergency"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_ALERT
+	bool "alert"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_CRIT
+	bool "critical"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_ERR
+	bool "error"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_WARNING
+	bool "warning"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_NOTICE
+	bool "notice"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_INFO
+	bool "information"
+
+config NLIF_DAEMON_STDLOG_SEVERITY_DEBUG
+	bool "debug"
+	depends on NLIF_DEBUG
+
+endchoice
+
+config NLIF_DAEMON_STDLOG_SEVERITY_VALUE
+	int
+	depends on NLIF_DAEMON_STDLOG
+	default 0 if NLIF_DAEMON_STDLOG_SEVERITY_EMERG
+	default 1 if NLIF_DAEMON_STDLOG_SEVERITY_ALERT
+	default 2 if NLIF_DAEMON_STDLOG_SEVERITY_CRIT
+	default 3 if NLIF_DAEMON_STDLOG_SEVERITY_ERR
+	default 4 if NLIF_DAEMON_STDLOG_SEVERITY_WARNING
+	default 5 if NLIF_DAEMON_STDLOG_SEVERITY_NOTICE
+	default 6 if NLIF_DAEMON_STDLOG_SEVERITY_INFO
+	default 7 if NLIF_DAEMON_STDLOG_SEVERITY_DEBUG
+
+config NLIF_DAEMON_STDLOG_SEVERITY_STRING
+	string
+	depends on NLIF_DAEMON_STDLOG
+	default "emerg" if NLIF_DAEMON_STDLOG_SEVERITY_EMERG
+	default "alert" if NLIF_DAEMON_STDLOG_SEVERITY_ALERT
+	default "crit" if NLIF_DAEMON_STDLOG_SEVERITY_CRIT
+	default "err" if NLIF_DAEMON_STDLOG_SEVERITY_ERR
+	default "warn" if NLIF_DAEMON_STDLOG_SEVERITY_WARNING
+	default "notice" if NLIF_DAEMON_STDLOG_SEVERITY_NOTICE
+	default "info" if NLIF_DAEMON_STDLOG_SEVERITY_INFO
+	default "debug" if NLIF_DAEMON_STDLOG_SEVERITY_DEBUG
 
 config NLIF_DAEMON_SYSLOG
 	bool "Syslog logging"
@@ -80,15 +130,65 @@ config NLIF_DAEMON_SYSLOG
 	help
 	  Build nlif with support for logging messages to syslog(3).
 
-config NLIF_DAEMON_SYSLOG_SEVERITY
-	int "Syslog logging default severity"
-	depends on NLIF_DAEMON_SYSLOG
-	range 0 7
-	default 3
+choice
+	prompt "Syslog logging default severity"
+	depends on NLIF_DAEMON_STDLOG
+	default NLIF_DAEMON_SYSLOG_SEVERITY_WARNING
 	help
 	  By default, nlifd daemon logging messages with severity greater that
 	  this won't be sent to syslog(3) logger.
 	  See syslog(3) levels for more informations about available severities.
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_EMERG
+	bool "emergency"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_ALERT
+	bool "alert"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_CRIT
+	bool "critical"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_ERR
+	bool "error"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_WARNING
+	bool "warning"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_NOTICE
+	bool "notice"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_INFO
+	bool "information"
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_DEBUG
+	bool "debug"
+	depends on NLIF_DEBUG
+
+endchoice
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_VALUE
+	int
+	depends on NLIF_DAEMON_SYSLOG
+	default 0 if NLIF_DAEMON_SYSLOG_SEVERITY_EMERG
+	default 1 if NLIF_DAEMON_SYSLOG_SEVERITY_ALERT
+	default 2 if NLIF_DAEMON_SYSLOG_SEVERITY_CRIT
+	default 3 if NLIF_DAEMON_SYSLOG_SEVERITY_ERR
+	default 4 if NLIF_DAEMON_SYSLOG_SEVERITY_WARNING
+	default 5 if NLIF_DAEMON_SYSLOG_SEVERITY_NOTICE
+	default 6 if NLIF_DAEMON_SYSLOG_SEVERITY_INFO
+	default 7 if NLIF_DAEMON_SYSLOG_SEVERITY_DEBUG
+
+config NLIF_DAEMON_SYSLOG_SEVERITY_STRING
+	string
+	depends on NLIF_DAEMON_SYSLOG
+	default "emerg" if NLIF_DAEMON_SYSLOG_SEVERITY_EMERG
+	default "alert" if NLIF_DAEMON_SYSLOG_SEVERITY_ALERT
+	default "crit" if NLIF_DAEMON_SYSLOG_SEVERITY_CRIT
+	default "err" if NLIF_DAEMON_SYSLOG_SEVERITY_ERR
+	default "warn" if NLIF_DAEMON_SYSLOG_SEVERITY_WARNING
+	default "notice" if NLIF_DAEMON_SYSLOG_SEVERITY_NOTICE
+	default "info" if NLIF_DAEMON_SYSLOG_SEVERITY_INFO
+	default "debug" if NLIF_DAEMON_SYSLOG_SEVERITY_DEBUG
 
 choice
 	prompt "Syslog logging default facility"
