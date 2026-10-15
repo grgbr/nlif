@@ -36,6 +36,9 @@ nlif_log(enum elog_severity severity, const char * format, ...);
 #define nlif_warn(_format, ...) \
 	nlif_log(ELOG_WARNING_SEVERITY, _format, ## __VA_ARGS__)
 
+#define nlif_notice(_format, ...) \
+	nlif_log(ELOG_NOTICE_SEVERITY, _format, ## __VA_ARGS__)
+
 #define nlif_info(_format, ...) \
 	nlif_log(ELOG_INFO_SEVERITY, _format, ## __VA_ARGS__)
 

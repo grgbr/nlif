@@ -15,6 +15,14 @@ struct nlif_repo {
 	nlif_store_assert(&(_repo)->store); \
 	nlif_gate_assert(&(_repo)->gate)
 
+static inline struct nlif_store *
+nlif_repo_store(const struct nlif_repo * repo)
+{
+	nlif_repo_assert(repo);
+
+	return (struct nlif_store *)&repo->store;
+}
+
 extern int
 nlif_repo_open(struct nlif_repo * repo, const struct upoll * poller);
 
