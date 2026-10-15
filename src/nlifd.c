@@ -69,21 +69,27 @@ nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
 		goto err;
 	}
 
-	len = strnlen(str, IFNAMSIZ);
-	if (!len) {
+	len = nlif_iface_validate_name(str);
+	if (len > 0) {
+		srplug_assert(len < IFNAMSIZ);
+
+		memcpy(name, str, len);
+		name[len] = '\0';
+
+		return name;
+	}
+
+	switch (len) {
+	case -ENODATA:
 		msg = "missing interface name";
-		goto err;
-	}
-
-	if (len == IFNAMSIZ) {
+		break;
+	case -ENAMETOOLONG:
 		msg = "interface name too long";
-		goto err;
+		break;
+	default:
+		srplug_assert(0);
+		msg = "unknown error";
 	}
-
-	memcpy(name, str, len);
-	name[len] = '\0';
-
-	return name;
 
 err:
 	sr_xpath_recover(&ctx);
@@ -587,7 +593,7 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 
 	/* Create default nodes as defined by the interface YANG model. */
 	ret = srplug_dat_populate_defaults(ent, LYD_IMPLICIT_NO_STATE, NULL);
- 	if (ret != SR_ERR_OK)
+if (ret != SR_ERR_OK)
 		return ret;
 
 	str = nlifd_iface_type_str(nlif_iface_type(interface),
@@ -604,6 +610,31 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 		*entry = ent;
 
 	return SR_ERR_OK;
+}
+
+static int
+nlifd_iface_dstore_empty(sr_session_ctx_t * session, bool * empty)
+{
+	sr_data_t * data;
+	sr_error_t  ret;
+	
+	ret = srplug_dat_load_node(session,
+	                           NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                           &data);
+	switch (ret) {
+	case SR_ERR_OK:
+		*empty = false;
+		return SR_ERR_OK;
+	
+	case SR_ERR_NOT_FOUND:
+		*empty = true;
+		return SR_ERR_OK;
+	
+	default:
+		break;
+	}
+	
+	return ret;
 }
 
 static sr_error_t
@@ -624,12 +655,12 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	                                  NULL,
 	                                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
 	                                  &top);
-	if (err)
+	if (err != SR_ERR_OK)
 		return err;
 
 	nlif_store_foreach_iface(nlif_repo_store(repository), hndl, iface) {
 		err = nlifd_iface_new_entry(context, top, iface, NULL);
-		if (err)
+		if (err != SR_ERR_OK)
 			goto free;
 	}
 
@@ -671,6 +702,7 @@ nlifd_load(const struct srplug_daemon * daemon,
 {
 	sr_session_ctx_t *    sess = srplug_daemon_session(daemon);
 	const struct ly_ctx * ctx;
+	bool                  empty;
 	int                   ret;
 
 	ret = srplug_acquire_context(sess, &ctx);
@@ -695,9 +727,14 @@ nlifd_load(const struct srplug_daemon * daemon,
 	if (!srplug_find_module(ctx, "netlink-interfaces"))
 		goto release;
 
-	ret = nlifd_iface_reset_dstore(sess, ctx, repository);
+	ret = nlifd_iface_dstore_empty(sess, &empty);
 	if (ret != SR_ERR_OK)
 		goto release;
+	if (empty) {
+		ret = nlifd_iface_reset_dstore(sess, ctx, repository);
+		if (ret != SR_ERR_OK)
+			goto release;
+	}
 
 	srplug_release_context(sess);
 
@@ -731,7 +768,7 @@ nlifd_setup(int argc, char * argv[], struct elog ** logger)
 		/* Success: keep moving... */
 		*logger = srplug_daemon_create_log(cfg);
 		nlif_log_setup(*logger);
-		nlif_free(cfg);
+		srplug_daemon_free_conf(cfg);
 		return;
 
 	case 1:
@@ -744,7 +781,7 @@ nlifd_setup(int argc, char * argv[], struct elog ** logger)
 		ret = EX_USAGE;
 	}
 
-	nlif_free(cfg);
+	srplug_daemon_free_conf(cfg);
 
 	exit(ret);
 }
