@@ -15,7 +15,6 @@ struct nlif_store {
 	struct stroll_hlist          nameh[1U << NLIF_STORE_NAMEH_BITS];
 	struct stroll_hlist          indxh[1U << NLIF_STORE_INDXH_BITS];
 	struct stroll_hlist          aliash[1U << NLIF_STORE_NAMEH_BITS];
-	struct stroll_hlist          altnameh[1U << NLIF_STORE_NAMEH_BITS];
 	struct stroll_dlist_node     ifaces;
 	unsigned int                 count;
 #if defined(CONFIG_NLIF_NOTIF)
@@ -27,7 +26,6 @@ struct nlif_store {
 		.nameh    = STROLL_HLIST_INIT_BUCKETS((_store).nameh), \
 		.indxh    = STROLL_HLIST_INIT_BUCKETS((_store).indxh), \
 		.aliash   = STROLL_HLIST_INIT_BUCKETS((_store).aliash), \
-		.altnameh = STROLL_HLIST_INIT_BUCKETS((_store).altnameh), \
 		.ifaces   = STROLL_DLIST_INIT((_store).ifaces), \
 		.count    = 0
 
@@ -65,7 +63,6 @@ struct nlif_store_hndl {
 	struct stroll_hlist_node    nameh;
 	struct stroll_hlist_node    indxh;
 	struct stroll_hlist_node    aliash;
-	struct stroll_hlist_node    altnameh;
 	struct stroll_dlist_node    list;
 	union {
 		struct nlif_iface * iface;
@@ -95,10 +92,6 @@ nlif_store_find_iface_byname(const struct nlif_store * store,
 extern struct nlif_iface *
 nlif_store_find_iface_byalias(const struct nlif_store * store,
                               const char *              alias);
-
-extern struct nlif_iface *
-nlif_store_find_iface_byaltname(const struct nlif_store * store,
-                                const char *              altname);
 
 extern struct nlif_iface *
 nlif_store_find_iface_bystrid(const struct nlif_store * store,

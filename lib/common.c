@@ -1,5 +1,6 @@
 #include "common.h"
 #include <stdio.h>
+#include <utils/string.h>
 
 void *
 nlif_malloc(size_t size)
@@ -13,6 +14,21 @@ nlif_malloc(size_t size)
 		abort();
 
 	return mem;
+}
+
+char *
+nlif_clone_str(const char * string, size_t length)
+{
+	nlif_assert(string);
+	nlif_assert(length);
+
+	char * str;
+
+	str = ustr_clone(string, length);
+	if (!str)
+		abort();
+
+	return str;
 }
 
 #if defined(CONFIG_NLIF_PRINT)

@@ -47,7 +47,7 @@ nlif_store_find_iface_byname(const struct nlif_store * store, const char * name)
 	nlif_store_assert(store);
 	nlif_assert(name);
 
-	if (nlif_iface_validate_strid(name) > 0) {
+	if (nlif_iface_validate_name(name) > 0) {
 		unsigned int hash;
 
 		hash = stroll_hash_str_djb2((const uint8_t *)name,
@@ -85,51 +85,13 @@ nlif_store_find_iface_byalias(const struct nlif_store * store,
 	nlif_store_assert(store);
 	nlif_assert(alias);
 
-	if (nlif_iface_validate_strid(alias) > 0) {
+	if (nlif_iface_validate_alias(alias) > 0) {
 		unsigned int hash;
 
 		hash = stroll_hash_str_djb2((const uint8_t *)alias,
 		                            NLIF_STORE_NAMEH_BITS);
 
 		return nlif_store_search_iface_byalias(store, hash, alias);
-	}
-	else
-		return NULL;
-}
-
-static struct nlif_iface *
-nlif_store_search_iface_byaltname(const struct nlif_store * store,
-                                  unsigned int              hash,
-                                  const char *              altname)
-{
-	struct nlif_store_hndl * hndl;
-
-	stroll_hlist_foreach_entry(&store->altnameh[hash], hndl, altnameh) {
-		nlif_store_assert_hndl(hndl);
-
-		const char * alt = nlif_iface_altname(hndl->iface);
-
-		if (!strcmp(altname, alt))
-			return hndl->iface;
-	}
-
-	return NULL;
-}
-
-struct nlif_iface *
-nlif_store_find_iface_byaltname(const struct nlif_store * store,
-                                const char *              altname)
-{
-	nlif_store_assert(store);
-	nlif_assert(altname);
-
-	if (nlif_iface_validate_strid(altname) > 0) {
-		unsigned int hash;
-
-		hash = stroll_hash_str_djb2((const uint8_t *)altname,
-		                            NLIF_STORE_NAMEH_BITS);
-
-		return nlif_store_search_iface_byaltname(store, hash, altname);
 	}
 	else
 		return NULL;
@@ -142,22 +104,20 @@ nlif_store_find_iface_bystrid(const struct nlif_store * store,
 	nlif_store_assert(store);
 	nlif_assert(strid);
 
-	if (nlif_iface_validate_strid(strid) > 0) {
-		unsigned int        hash;
-		struct nlif_iface * iface;
+	unsigned int        hash;
+	struct nlif_iface * iface;
 
-		hash = stroll_hash_str_djb2((const uint8_t *)strid,
-		                            NLIF_STORE_NAMEH_BITS);
+	hash = stroll_hash_str_djb2((const uint8_t *)strid,
+	                            NLIF_STORE_NAMEH_BITS);
 
+	if (nlif_iface_validate_name(strid) > 0) {
 		iface = nlif_store_search_iface_byname(store, hash, strid);
 		if (iface)
 			return iface;
+	}
 
+	if (nlif_iface_validate_alias(strid) > 0) {
 		iface = nlif_store_search_iface_byalias(store, hash, strid);
-		if (iface)
-			return iface;
-
-		iface = nlif_store_search_iface_byaltname(store, hash, strid);
 		if (iface)
 			return iface;
 	}
@@ -206,11 +166,9 @@ nlif_store_match_iface_bystrid(const struct nlif_iface * interface,
                                const char *              strid)
 {
 	const char * als = nlif_iface_alias(interface);
-	const char * alt = nlif_iface_altname(interface);
 
 	return (!strcmp(strid, nlif_iface_name(interface))) ||
-	        (als && !strcmp(strid, als)) ||
-	        (alt && !strcmp(strid, alt));
+	        (als && !strcmp(strid, als));
 }
 
 static bool
@@ -260,29 +218,6 @@ nlif_store_may_register_iface_alias(struct nlif_store *    store,
 }
 
 static bool
-nlif_store_may_register_iface_altname(struct nlif_store *    store,
-                                      const char *           altname,
-                                      struct stroll_hlist ** bucket)
-{
-	unsigned int             hash;
-	struct nlif_store_hndl * hndl;
-
-	hash = stroll_hash_str_djb2((const uint8_t *)altname,
-	                            NLIF_STORE_NAMEH_BITS);
-
-	stroll_hlist_foreach_entry(&store->altnameh[hash], hndl, altnameh) {
-		nlif_store_assert_hndl(hndl);
-
-		if (nlif_store_match_iface_bystrid(hndl->iface, altname))
-			return false;
-	}
-
-	*bucket = &store->altnameh[hash];
-
-	return true;
-}
-
-static bool
 nlif_store_may_register_iface_index(struct nlif_store *    store,
                                     unsigned int           index,
                                     struct stroll_hlist ** bucket)
@@ -309,8 +244,7 @@ nlif_store_createn_enroll_iface_hndl(struct nlif_store *   store,
                                      struct nlif_iface *   interface,
                                      struct stroll_hlist * indx_buck,
                                      struct stroll_hlist * name_buck,
-                                     struct stroll_hlist * alias_buck,
-                                     struct stroll_hlist * alt_buck)
+                                     struct stroll_hlist * alias_buck)
 {
 	struct nlif_store_hndl * hndl;
 
@@ -323,9 +257,6 @@ nlif_store_createn_enroll_iface_hndl(struct nlif_store *   store,
 
 	if (alias_buck)
 		stroll_hlist_add(alias_buck, &hndl->aliash);
-
-	if (alt_buck)
-		stroll_hlist_add(alt_buck, &hndl->altnameh);
 
 	stroll_dlist_nqueue_back(&store->ifaces, &hndl->list);
 
@@ -343,7 +274,6 @@ nlif_store_enroll_iface(struct nlif_store * store,
 	struct stroll_hlist * indxb;
 	const char *          strid;
 	struct stroll_hlist * aliasb = NULL;
-	struct stroll_hlist * altb = NULL;
 
 	if (!nlif_store_may_register_iface_name(store,
 	                                        nlif_iface_name(interface),
@@ -363,20 +293,11 @@ nlif_store_enroll_iface(struct nlif_store * store,
 		nlif_assert(aliasb);
 	}
 
-	strid = nlif_iface_altname(interface);
-	if (strid) {
-		if (!nlif_store_may_register_iface_altname(store, strid, &altb))
-			return -EEXIST;
-
-		nlif_assert(aliasb);
-	}
-
 	nlif_store_createn_enroll_iface_hndl(store,
 	                                     interface,
 	                                     indxb,
 	                                     nameb,
-	                                     aliasb,
-	                                     altb);
+	                                     aliasb);
 
 	return 0;
 }
@@ -398,14 +319,11 @@ nlif_store_withdraw_iface(struct nlif_store *       store,
 			nlif_assert(hndl->iface == interface);
 
 			const char * als = nlif_iface_alias(interface);
-			const char * alt = nlif_iface_altname(interface);
 
 			stroll_hlist_del(&hndl->nameh);
 			stroll_hlist_del(&hndl->indxh);
 			if (als)
 				stroll_hlist_del(&hndl->aliash);
-			if (alt)
-				stroll_hlist_del(&hndl->altnameh);
 			stroll_dlist_remove(&hndl->list);
 
 			nlif_store_free_hndl(hndl);
@@ -427,7 +345,6 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate __unused,
 	struct stroll_hlist * indxb;
 	struct stroll_hlist * nameb;
 	struct stroll_hlist * aliasb = NULL;
-	struct stroll_hlist * altb = NULL;
 	struct nlif_iface *   iface;
 
 	struct nlif_store * store = data;
@@ -469,32 +386,12 @@ nlif_store_on_link_loaded(const struct nlif_gate *     gate __unused,
 		nlif_assert(aliasb);
 	}
 
-	if (link->_present.prop_list && link->prop_list._count.alt_ifname) {
-		const struct ynl_string * alt = link->prop_list.alt_ifname[0];
-
-		if (!nlif_store_may_register_iface_altname(store,
-		                                           alt->str,
-		                                           &altb)) {
-			nlif_warn("'%s[%u]': cannot load link: "
-			          "'%s': duplicate alternate name.",
-			          link->ifname,
-			          link->_hdr.ifi_index,
-			          alt->str);
-
-			/* Tell the caller to keep processing link entries. */
-			return 0;
-		}
-
-		nlif_assert(altb);
-	}
-
 	nlif_iface_create_bylink(link, &iface);
 	nlif_store_createn_enroll_iface_hndl(store,
 	                                     iface,
 	                                     indxb,
 	                                     nameb,
-	                                     aliasb,
-	                                     altb);
+	                                     aliasb);
 
 	return 0;
 }
@@ -535,7 +432,6 @@ nlif_store_reinit(struct nlif_store * store)
 	stroll_hlist_init_buckets(store->nameh, NLIF_STORE_NAMEH_BITS);
 	stroll_hlist_init_buckets(store->indxh, NLIF_STORE_INDXH_BITS);
 	stroll_hlist_init_buckets(store->aliash, NLIF_STORE_NAMEH_BITS);
-	stroll_hlist_init_buckets(store->altnameh, NLIF_STORE_NAMEH_BITS);
 	stroll_dlist_init(&store->ifaces);
 	store->count = 0;
 }

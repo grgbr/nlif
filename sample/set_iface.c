@@ -25,8 +25,9 @@ main(int argc, char * const argv[])
 		const char * arg = argv[1];
 
 		if (arg[0] != '\0') {
-			unsigned long indx;
-			char *        err;
+			unsigned long     indx;
+			char *            err;
+			struct ether_addr addr;
 
 			indx = strtoul(argv[1], &err, 0);
 			if (*err == '\0') {
@@ -45,7 +46,7 @@ main(int argc, char * const argv[])
 					&iface);
 			}
 			else {
-				if (nlif_iface_validate_strid(arg) < 0) {
+				if (nlif_iface_validate_name(arg) < 0) {
 					nlif_err("'%s': "
 					         "invalid name specified.",
 					         arg);
@@ -60,33 +61,68 @@ main(int argc, char * const argv[])
 			if (ret) {
 				nlif_err("'%s': cannot load interface: %s.",
 				         arg,
-				         strerror(ret));
+				         strerror(-ret));
 				goto fini_gate;
+			}
+
+			nlif_iface_set_admstate(iface, false);
+
+			ret = nlif_iface_set_mtu(iface, 1500);
+			if (ret) {
+				nlif_err("'%s': "
+				         "cannot configure interface MTU: "
+				         "%s.",
+				         arg,
+				         strerror(-ret));
+				goto destroy;
+			}
+
+			ret = nlif_iface_set_alias(iface, "atestalias");
+			if (ret) {
+				nlif_err("'%s': "
+				         "cannot configure interface alias: "
+				         "%s.",
+				         arg,
+				         strerror(-ret));
+				goto destroy;
+			}
+
+			ret = nlif_iface_set_hwaddr(
+				iface,
+				ether_aton_r("1a:41:41:59:a7:e0", &addr));
+			if (ret) {
+				nlif_err("'%s': "
+				         "cannot configure interface kddress: "
+				         "%s.",
+				         arg,
+				         strerror(-ret));
+				goto destroy;
+			}
+
+			ret = nlif_iface_apply(iface, &gate);
+			if (ret) {
+				nlif_err("'%s': "
+				         "cannot apply interface configuration: "
+				         "%s.",
+				         arg,
+				         strerror(-ret));
+				goto destroy;
 			}
 
 			nlif_iface_print(iface, stdout);
 
+destroy:
 			nlif_iface_destroy(iface);
 
-			goto fini_gate;
 		}
-	}
-	else if (argc == 1) {
-		struct nlif_store              store = NLIF_STORE_INIT(store);
-		const struct nlif_store_hndl * hndl;
-
-		ret = nlif_store_load(&store, &gate);
-		if (ret)
-			goto fini_gate;
-
-		nlif_store_foreach_iface(&store, hndl, iface)
-			nlif_iface_print(iface, stdout);
-
-		nlif_store_fini(&store);
+		else {
+			nlif_err("invalid empty argument.");
+			ret = -EINVAL;
+		}
 	}
 	else {
 		nlif_err("invalid number of arguments.");
-		ret = EINVAL;
+		ret = -EINVAL;
 	}
 
 fini_gate:
@@ -94,5 +130,5 @@ fini_gate:
 fini_log:
 	elog_fini_stdio(&log);
 
-	return ret ? EXIT_SUCCESS : EXIT_FAILURE;
+	return (!ret) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

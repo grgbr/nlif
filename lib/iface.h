@@ -13,7 +13,17 @@ struct rt_link_getlink_rsp;
  * Interface handling.
  ******************************************************************************/
 
+enum nlif_iface_field {
+	NLIF_GROUP_IFACE_FLD  = 0,
+	NLIF_ALIAS_IFACE_FLD,
+	NLIF_MTU_IFACE_FLD,
+	NLIF_HWADR_IFACE_FLD,
+	NLIF_IFACE_FLD_NR
+};
+
 struct nlif_iface {
+	unsigned int      dirty_fields;
+	unsigned int      dirty_flags;
 	unsigned int      idx;
 	unsigned int      group;
 	unsigned int      flags;
@@ -22,26 +32,29 @@ struct nlif_iface {
 	unsigned short    type;
 	char              name[IFNAMSIZ];
 	char *            alias;
-	char *            altname;
 	char *            kind;
 	unsigned int      lnk;
 	unsigned int      mst;
 	unsigned int      mtu;
+	unsigned int      min_mtu;
+	unsigned int      max_mtu;
 	struct ether_addr hwadr;
 };
 
 #define nlif_iface_assert(_iface) \
 	nlif_assert(_iface); \
+	nlif_assert(!((_iface)->dirty_fields & \
+	              ~((1U << NLIF_IFACE_FLD_NR) - 1))); \
+	nlif_assert(!((_iface)->dirty_flags & IFF_VOLATILE)); \
 	nlif_assert((_iface)->idx); \
-	nlif_assert((_iface)->name[0] != '\0'); \
-	nlif_assert(strlen((_iface)->name) < sizeof((_iface)->name)); \
-	nlif_assert(!(_iface)->alias || ((_iface)->alias[0] != '\0')); \
-	nlif_assert(!(_iface)->alias || \
-	             (strlen((_iface)->alias) < sizeof((_iface)->name))); \
-	nlif_assert(!(_iface)->altname || ((_iface)->altname[0] != '\0')); \
-	nlif_assert(!(_iface)->altname || \
-	             (strlen((_iface)->altname) < sizeof((_iface)->name))); \
-	nlif_assert(!(_iface)->kind || ((_iface)->kind[0] != '\0'))
+	nlif_assert(nlif_iface_validate_name((_iface)->name) > 0); \
+	nlif_assert(nlif_iface_validate_alias((_iface)->alias) >= 0); \
+	nlif_assert(!(_iface)->kind || ((_iface)->kind[0] != '\0')); \
+	nlif_assert((_iface)->min_mtu <= (_iface)->max_mtu); \
+	nlif_assert((_iface)->mtu >= (_iface)->min_mtu); \
+	nlif_assert(!(_iface)->max_mtu || \
+	            ((_iface)->mtu <= (_iface)->max_mtu)); \
+	nlif_assert(nlif_link_hwaddr_is_ucast(&(_iface)->hwadr))
 
 static inline int
 nlif_iface_validate_index(unsigned int index)
@@ -50,9 +63,15 @@ nlif_iface_validate_index(unsigned int index)
 }
 
 static inline ssize_t
-nlif_iface_validate_strid(const char * string)
+nlif_iface_validate_name(const char * name)
 {
-	return nlif_link_validate_strid(string);
+	return nlif_link_validate_name(name);
+}
+
+static inline ssize_t
+nlif_iface_validate_alias(const char * alias)
+{
+	return nlif_link_validate_alias(alias);
 }
 
 static inline unsigned int
@@ -70,6 +89,9 @@ nlif_iface_group(const struct nlif_iface * interface)
 
 	return interface->group;
 }
+
+extern void
+nlif_iface_set_group(struct nlif_iface * interface, unsigned int group);
 
 /*
  * Return netdevice IFF_* flags.
@@ -112,13 +134,8 @@ nlif_iface_admstate(const struct nlif_iface * interface)
 	return nlif_iface_flags(interface) & IFF_UP;
 }
 
-static inline void
-nlif_iface_set_admstate(struct nlif_iface * interface, bool up)
-{
-	nlif_iface_assert(interface);
-
-	nlif_err("%s: IMPLEMENT ME!", __func__);
-}
+extern void
+nlif_iface_set_admstate(struct nlif_iface * interface, bool up);
 
 /*
  * RFC 2863 operational status.
@@ -211,13 +228,9 @@ nlif_iface_alias(const struct nlif_iface * interface)
 	return interface->alias;
 }
 
-static inline const char *
-nlif_iface_altname(const struct nlif_iface * interface)
-{
-	nlif_iface_assert(interface);
-
-	return interface->altname;
-}
+/* `alias' may be given as `NULL' to remove existing interface's alias. */
+extern int
+nlif_iface_set_alias(struct nlif_iface * interface, const char * alias);
 
 static inline const char *
 nlif_iface_kind(const struct nlif_iface * interface)
@@ -243,6 +256,18 @@ nlif_iface_master(const struct nlif_iface * interface)
 	return interface->mst;
 }
 
+static inline int
+nlif_iface_validate_mtu(unsigned int mtu, const struct nlif_iface * interface)
+{
+	nlif_iface_assert(interface);
+
+	if ((mtu >= interface->min_mtu) &&
+	    (!interface->max_mtu || (mtu <= interface->max_mtu)))
+		return 0;
+	else
+		return -EINVAL;
+}
+
 static inline unsigned int
 nlif_iface_mtu(const struct nlif_iface * interface)
 {
@@ -250,6 +275,12 @@ nlif_iface_mtu(const struct nlif_iface * interface)
 
 	return interface->mtu;
 }
+
+extern int
+nlif_iface_set_mtu(struct nlif_iface * interface, unsigned int mtu);
+
+extern int
+nlif_iface_validate_hwaddr(const struct ether_addr * address);
 
 /*
  * Return the hardware MAC address for the interface given in argument.
@@ -265,6 +296,10 @@ nlif_iface_hwaddr(const struct nlif_iface * interface)
 
 	return &interface->hwadr;
 }
+
+extern int
+nlif_iface_set_hwaddr(struct nlif_iface *       interface,
+                      const struct ether_addr * address);
 
 #if defined(CONFIG_NLIF_PRINT)
 
@@ -298,15 +333,8 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
                        const char *             name,
                        const struct nlif_gate * gate);
 
-static inline int
-nlif_iface_save(struct nlif_iface * interface)
-{
-	nlif_iface_assert(interface);
-
-	nlif_err("%s: IMPLEMENT ME!", __func__);
-
-	return -ENOSYS;
-}
+extern int
+nlif_iface_apply(struct nlif_iface * interface, const struct nlif_gate * gate);
 
 extern void
 nlif_iface_fini(struct nlif_iface * interface);

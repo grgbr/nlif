@@ -92,6 +92,9 @@ nlif_free(void * mem)
 	free(mem);
 }
 
+extern char *
+nlif_clone_str(const char * string, size_t length);
+
 static inline int
 nlif_ynl_err(const struct ynl_error * error)
 {
