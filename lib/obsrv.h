@@ -84,7 +84,9 @@ nlif_obsrv_subscribe(struct nlif_obsrv_notifier *   notifier,
                      struct nlif_obsrv_subscriber * subscriber)
 {
 	nlif_assert(notifier);
+#if defined(CONFIG_NLIF_DEBUG)
 	nlif_assert(!notifier->run);
+#endif /* defined(CONFIG_NLIF_DEBUG) */
 	nlif_assert(subscriber);
 	nlif_assert(stroll_dlist_empty(&subscriber->node));
 	nlif_assert(subscriber->on_event);
@@ -97,7 +99,9 @@ nlif_obsrv_unsubscribe(struct nlif_obsrv_notifier *   notifier __unused,
                        struct nlif_obsrv_subscriber * subscriber)
 {
 	nlif_assert(subscriber);
+#if defined(CONFIG_NLIF_DEBUG)
 	nlif_assert(!notifier->run);
+#endif /* defined(CONFIG_NLIF_DEBUG) */
 
 	stroll_dlist_remove_init(&subscriber->node);
 }

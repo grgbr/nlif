@@ -1,0 +1,130 @@
+################################################################################
+# SPDX-License-Identifier: LGPL-3.0-only
+#
+# This file is part of nlif.
+# Copyright (C) 2026 Grégor Boirie <gregor.boirie@free.fr>
+################################################################################
+
+config NLIF_ASSERT
+	bool "Assertion"
+	default n
+	help
+	  Build nlif with assertions enabled to perform full verification of
+	  arguments consistency as well as internal state.
+
+config NLIF_DEBUG
+	bool "Debug"
+	default n
+	help
+	  Build nlif in debug mode, enabling additional debugging messages,
+	  additional internal state consistency checks as well as full memory
+	  cleanup logic suitable for memory error detection tools such as
+	  Valgrind's Memcheck and co.
+
+config NLIF_LOG
+	bool "Logging"
+	default y
+	help
+	  Build nlif with support for logging messages.
+
+config NLIF_PRINT
+	bool "Object printing"
+	default n
+	help
+	  Build nlif with support for displaying objects content on
+	  console.
+
+config NLIF_STORE
+	bool "Object store"
+	default n
+	help
+	  Build nlif with support for an object store that may serve as a
+	  caching mechanism when coupled with asynchronous object notifications.
+
+config NLIF_NOTIF
+	bool "Notification"
+	default n
+	help
+	  Build nlif with support for asynchronous object notifications.
+
+config NLIF_DAEMON
+	bool "nlifd daemon"
+	select NLIF_NOTIF
+	select NLIF_STORE
+	default y
+	help
+	  Build the nlifd management daemon.
+
+config NLIF_DAEMON_STDLOG
+	bool "STDIO logging"
+	depends on NLIF_DAEMON && NLIF_LOG
+	default y
+	help
+	  Build nlif with support for logging messages to stdio(3)
+	  streams.
+
+config NLIF_DAEMON_STDLOG_SEVERITY
+	int "STDIO logging default severity"
+	depends on NLIF_DAEMON_STDLOG
+	range 0 7
+	default 3
+	help
+	  By default, nlifd daemon logging messages with severity greater that
+	  this won't be sent to stdio(3) stream logger.
+	  See syslog(3) levels for more informations about available severities.
+
+config NLIF_DAEMON_SYSLOG
+	bool "Syslog logging"
+	depends on NLIF_DAEMON && NLIF_LOG
+	default y
+	help
+	  Build nlif with support for logging messages to syslog(3).
+
+config NLIF_DAEMON_SYSLOG_SEVERITY
+	int "Syslog logging default severity"
+	depends on NLIF_DAEMON_SYSLOG
+	range 0 7
+	default 3
+	help
+	  By default, nlifd daemon logging messages with severity greater that
+	  this won't be sent to syslog(3) logger.
+	  See syslog(3) levels for more informations about available severities.
+
+config NLIF_DAEMON_SYSLOG_FACILITY
+	int "Syslog logging default facility"
+	depends on NLIF_DAEMON_SYSLOG
+	range 0 7
+	default 3
+	help
+	  By default, nlifd daemon messages are logged to syslog(3) using this
+	  facility.
+	  See syslog(3) for more informations about available facilities.
+
+config NLIF_SAMPLE
+	bool "Sample code"
+	default n
+	help
+	  Build various sample code binaries showing how to use nlif internals.
+
+config NLIF_SAMPLE_SHOW
+	bool "nlif-show sample"
+	depends on NLIF_SAMPLE
+	select NLIF_STORE
+	select NLIF_LOG
+	default n
+	help
+	  Build the nlif-show sample code that demonstrates how to retrieve and
+	  display managed objects.
+
+config NLIF_SAMPLE_MON
+	bool "nlif-mon sample"
+	depends on NLIF_SAMPLE
+	select NLIF_STORE
+	select NLIF_NOTIF
+	select NLIF_LOG
+	default n
+	help
+	  Build the nlif-mon sample code that demonstrates how to retrieve and
+	  monitor state changes of managed objets.
+
+# ex: ft=kconfig:

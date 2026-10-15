@@ -234,7 +234,7 @@ free_req:
 	return ret;
 }
 
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 
 int
 nlif_gate_subscribe(struct nlif_gate *             gate,
@@ -333,7 +333,7 @@ nlif_gate_notify(struct nlif_gate * gate)
 	}
 }
 
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 int
 nlif_gate_init(struct nlif_gate * gate)
@@ -357,9 +357,9 @@ nlif_gate_init(struct nlif_gate * gate)
 	ret = fcntl(ret, F_SETFD, flags | FD_CLOEXEC);
 	nlif_assert(!ret);
 
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 	nlif_obsrv_setup_notifier(&gate->notif);
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	nlif_dbg("gate opened.");
 
@@ -370,9 +370,9 @@ void
 nlif_gate_fini(struct nlif_gate * gate)
 {
 	nlif_gate_assert(gate);
-#if defined(CONFIG_NLIF_OBSRV)
+#if defined(CONFIG_NLIF_NOTIF)
 	nlif_assert(nlif_obsrv_notifier_empty(&gate->notif));
-#endif /* defined(CONFIG_NLIF_OBSRV) */
+#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	ynl_sock_destroy(gate->sock);
 
