@@ -1327,7 +1327,7 @@ nlifd_load(struct nlifd * daemon)
 		goto err;
 
 	ret = SR_ERR_NOT_FOUND;
-	if (!srepo_sch_find_module(ctx, "iana-if-type"))
+	if (!srplug_find_module(ctx, "iana-if-type"))
 		goto release;
 	if (srplug_probe_feature(ctx,
 	                         "ietf-interfaces",
@@ -1341,7 +1341,7 @@ nlifd_load(struct nlifd * daemon)
 	                         "ietf-interfaces",
 	                         &nlifd_if_mib_feat) != SR_ERR_OK)
 		goto release;
-	if (!srepo_sch_find_module(ctx, "netlink-interfaces"))
+	if (!srplug_find_module(ctx, "netlink-interfaces"))
 		goto release;
 
 	ret = nlifd_iface_dstore_empty(sess, &empty);
