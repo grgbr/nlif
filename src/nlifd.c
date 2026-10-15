@@ -233,9 +233,9 @@ _nlifd_iface_concat_leaf_path(char *       path,
 		_path, \
 		_plen, \
 		_str, \
-		compile_eval(_stroll_is_array(_str), \
+		compile_eval(_stroll_is_const(_str) && _stroll_is_array(_str), \
 		             sizeof(_str) - 1, \
-		             "array expected"))
+		             "constant string expected"))
 
 static struct nlif_iface *
 nlifd_iface_from_node(const sr_session_ctx_t *  session,
@@ -641,8 +641,15 @@ nlifd_iface_new_entry(const sr_session_ctx_t * session,
 	if (ret != SR_ERR_OK)
 		return ret;
 
+	str = nlif_iface_alias(interface);
+	if (str) {
+		ret = srepo_dat_create_leaf(ent, "description", str, NULL);
+		if (ret != SR_ERR_OK)
+			return ret;
+	}
+
 	if (entry)
-		*entry = ent;
+	*entry = ent;
 
 	return SR_ERR_OK;
 }
@@ -846,6 +853,7 @@ nlifd_iface_restore_type(sr_session_ctx_t *      session,
 	return SR_ERR_OK;
 }
 
+#warning TODO: add support for description /alias leaf
 static const struct srplug_change_hndlr nlifd_iface_change_hndlrs[] = {
 	SRPLUG_CHANGE_HNDLR("enabled", NULL, nlifd_iface_change_enabled),
 	SRPLUG_CHANGE_HNDLR("type",    NULL, nlifd_iface_change_type)
@@ -1242,7 +1250,7 @@ nlifd_iface_reset_config_dstore(sr_session_ctx_t *    session,
 	 * the data tree.
 	 */
 	err = srepo_replace_config(session, NLIFD_IETF_IFACE_YANG_MODULE, top);
-	if (err == SR_ERR_OK)
+	if (err != SR_ERR_OK)
 		goto free;
 
 	return SR_ERR_OK;
