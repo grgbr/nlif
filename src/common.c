@@ -56,24 +56,4 @@ nlif_log_setup(struct elog * logger)
 	nlif_logger = logger;
 }
 
-#if defined(CONFIG_NLIF_DEBUG)
-
-void
-nlif_log_fini(void)
-{
-	if (nlif_logger)
-		elog_destroy(nlif_logger);
-}
-
-#else  /* !defined(CONFIG_NLIF_DEBUG) */
-
-static void
-nlif_log_fini(void)
-{
-	if (nlif_logger)
-		elog_fini(nlif_logger);
-}
-
-#endif /* defined(CONFIG_NLIF_DEBUG) */
-
 #endif /* defined(CONFIG_NLIF_LOG) */
