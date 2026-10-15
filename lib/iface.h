@@ -436,6 +436,10 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
                        const struct nlif_gate * gate);
 
 extern int
+nlif_iface_load_stats(const struct nlif_iface *  interface,
+                      struct rtnl_link_stats64 * statistics);
+
+extern int
 nlif_iface_apply(struct nlif_iface * interface);
 
 extern void

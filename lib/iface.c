@@ -705,6 +705,34 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
 }
 
 int
+nlif_iface_load_stats(const struct nlif_iface *  interface,
+                      struct rtnl_link_stats64 * statistics)
+{
+	nlif_iface_assert(interface);
+	nlif_gate_assert(interface->gate);
+	nlif_assert(statistics);
+
+	struct rt_link_getstats_rsp * stats;
+	int                           err;
+
+	err = nlif_gate_load_link_stats(interface->gate,
+	                                interface->idx,
+	                                &stats);
+	if (err) {
+		nlif_warn("[%u]: cannot load interface statistics: %s.",
+		          index,
+		          strerror(-err));
+		return err;
+	}
+
+	*statistics = *stats->link_64;
+
+	nlif_gate_destroy_link_stats(stats);
+
+	return 0;
+}
+
+int
 nlif_iface_apply(struct nlif_iface * interface)
 {
 	nlif_iface_assert(interface);
