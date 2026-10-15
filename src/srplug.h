@@ -9,6 +9,7 @@
 #include <utils/poll.h>
 #include <utils/timer.h>
 #include <sysrepo.h>
+#include <elog/elog.h>
 
 #if defined(CONFIG_SRPLUG_ASSERT)
 
@@ -23,13 +24,43 @@
 
 #endif /* defined(CONFIG_SRPLUG_ASSERT) */
 
+#if !defined(CONFIG_SRPLUG_LOG)
+
+#define srplug_err(_format, ...)
+#define srplug_warn(_format, ...)
+#define srplug_info(_format, ...)
+#define srplug_debug(_format, ...)
+
+#endif /* !defined(CONFIG_SRPLUG_LOG) */
+
 #if defined(CONFIG_SRPLUG_DAEMON)
 
-struct srplug_subs_work {
-	struct upoll_worker     base;
-	sr_subscription_ctx_t * ctx;
-	struct etux_timer       tmr;
-};
+#if defined(CONFIG_SRPLUG_LOG)
+
+extern void
+srplug_daemon_log(enum elog_severity severity, const char * format, ...);
+
+#define srplug_err(_format, ...) \
+	srplug_daemon_log(ELOG_ERR_SEVERITY, _format ".", ## __VA_ARGS__)
+
+#define srplug_warn(_format, ...) \
+	srplug_daemon_log(ELOG_WARNING_SEVERITY, _format ".", ## __VA_ARGS__)
+
+#define srplug_info(_format, ...) \
+	srplug_daemon_log(ELOG_INFO_SEVERITY, _format ".", ## __VA_ARGS__)
+
+#if defined(CONFIG_SRPLUG_DEBUG)
+
+#define srplug_debug(_format, ...) \
+	srplug_daemon_log(ELOG_DEBUG_SEVERITY, _format ".", ## __VA_ARGS__)
+
+#else  /* !defined(CONFIG_SRPLUG_DEBUG) */
+
+#define srplug_daemon_debug(_format, ...)
+
+#endif /* defined(CONFIG_SRPLUG_DEBUG) */
+
+#endif /* defined(CONFIG_SRPLUG_LOG) */
 
 struct srplug_sigs_work {
 	struct upoll_worker base;
@@ -39,7 +70,9 @@ struct srplug_sigs_work {
 struct srplug_daemon {
         sr_session_ctx_t *      sess;
 	struct upoll            poll;
-	struct srplug_subs_work subs;
+	struct upoll_worker     sub_work;
+	sr_subscription_ctx_t * sub_ctx;
+	struct etux_timer       sub_tmr;
 	unsigned int            sub_cnt;
 	struct srplug_sigs_work sigs;
 };

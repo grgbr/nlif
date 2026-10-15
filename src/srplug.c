@@ -1,5 +1,4 @@
 #include "srplug.h"
-#include <elog/elog.h>
 #include <utils/signal.h>
 
 #if defined(CONFIG_SRPLUG_DAEMON)
@@ -28,7 +27,7 @@ static struct elog * srplug_daemon_logger;
 
 #endif /* defined(CONFIG_SRPLUG_DEBUG) */
 
-static void
+void
 srplug_daemon_log(enum elog_severity severity, const char * format, ...)
 {
 	if (srplug_daemon_logger) {
@@ -49,346 +48,9 @@ srplug_daemon_log(enum elog_severity severity, const char * format, ...)
 
 #endif /* !defined(CONFIG_SRPLUG_LOG) */
 
-static void
-srplug_subs_adjust_tmr(struct srplug_subs_work * worker,
-                       const struct timespec *   tmout)
-{
-	srplug_assert(worker);
-	srplug_assert(tmout);
-
-	if (tmout->tv_sec || tmout->tv_nsec) {
-		struct timespec tm;
-
-		/* Compute requested timeout absolute time. */
-		utime_monotonic_now(&tm);
-		utime_tspec_add_clamp(&tm, tmout);
-
-		/*
-		 * And arm the timer if necessary, i.e., if it is not armed or
-		 * if its expiry date is later than the requested one.
-		 */
-		if (!etux_timer_is_armed(&worker->tmr) ||
-		    utime_tspec_after(etux_timer_expiry_tspec(&worker->tmr),
-		                      &tm))
-			etux_timer_arm_tspec(&worker->tmr, &tm);
-	}
-	else
-		etux_timer_cancel(&worker->tmr);
-}
-
-static
-void
-srplug_subs_process(struct srplug_subs_work * worker,
-                    sr_session_ctx_t *        session)
-{
-	srplug_assert(worker);
-	srplug_assert(session);
-
-	struct timespec tmout;
-	int             err;
-
-	/*
-	 * No need to initialize `tmout' since sr_subscription_process_events()
-	 * will zero it out.
-	 */
-	err = sr_subscription_process_events(worker->ctx, session, &tmout);
-	switch (err) {
-	case SR_ERR_OK:
-		break;
-
-	case SR_ERR_TIME_OUT:
-		/*
-		 * Reschedule a call to sr_subscription_process_events() no
-		 * later than 100 milliseconds in the future.
-		 */
-		tmout.tv_sec = 0;
-		tmout.tv_nsec = 100000000;
-		break;
-
-	case SR_ERR_NO_MEMORY: /* Not enough memory. */
-		abort();
-
-	default:
-		srplug_daemon_err("failed to process subscription events: %s",
-		                  sr_strerror(err));
-		return;
-	}
-
-	/* Adjust timer configuration. */
-	srplug_subs_adjust_tmr(worker, &tmout);
-}
-
-static
-void
-srplug_subs_expire(struct etux_timer * timer)
-{
-	struct srplug_subs_work *    wk;
-	const struct srplug_daemon * dmn;
-
-	wk = containerof(timer, struct srplug_subs_work, tmr);
-	srplug_assert(wk);
-	srplug_assert(wk->ctx);
-
-	dmn = containerof(wk, struct srplug_daemon, subs);
-	srplug_daemon_assert(dmn);
-
-	srplug_subs_process(wk, dmn->sess);
-}
-
-static
-int
-srplug_subs_dispatch(struct upoll_worker * worker,
-                     uint32_t              state __unused,
-                     const struct upoll *  poller __unused)
-{
-	srplug_assert(worker);
-	srplug_assert(state);
-	srplug_assert(!(state & EPOLLOUT));
-	srplug_assert(!(state & EPOLLRDHUP));
-	srplug_assert(!(state & EPOLLPRI));
-	srplug_assert(!(state & EPOLLHUP));
-	srplug_assert(!(state & EPOLLERR));
-	srplug_assert(state & EPOLLIN);
-	srplug_assert(poller);
-
-	struct srplug_subs_work *    wk;
-	const struct srplug_daemon * dmn;
-
-	wk = containerof(worker, struct srplug_subs_work, base);
-	srplug_assert(wk);
-	srplug_assert(wk->ctx);
-
-	dmn = containerof(wk, struct srplug_daemon, subs);
-	srplug_daemon_assert(dmn);
-
-	srplug_subs_process(wk, dmn->sess);
-
-	return 0;
-}
-
-static int
-srplug_subs_enable(struct srplug_subs_work * worker,
-                   const struct upoll *      poller)
-{
-	srplug_assert(worker);
-	srplug_assert(worker->ctx);
-	srplug_assert(!etux_timer_is_armed(&worker->tmr));
-	srplug_assert(poller);
-
-	int fd;
-	int err;
-
-	err = sr_get_event_pipe(worker->ctx, &fd);
-	srplug_assert(err == SR_ERR_OK);
-	srplug_assert(fd >= 0);
-
-	err = upoll_register_dispatch(poller,
-	                              fd,
-	                              EPOLLIN,
-	                              &worker->base,
-	                              srplug_subs_dispatch);
-	if (!err) {
-		srplug_daemon_debug("subscription worker enabled");
-		return 0;
-	}
-
-	if (err == -ENOMEM)
-		abort();
-
-	srplug_daemon_err("cannot enable subscription worker: %s.",
-	                  strerror(-err));
-
-	return err;
-}
-
-static void
-srplug_subs_disable(struct srplug_subs_work * worker,
-                    const struct upoll *      poller)
-{
-	srplug_assert(worker);
-	srplug_assert(worker->base.dispatch);
-	srplug_assert(worker->ctx);
-	srplug_assert(poller);
-
-	int fd;
-	int err;
-
-	etux_timer_cancel(&worker->tmr);
-
-	err = sr_get_event_pipe(worker->ctx, &fd);
-	srplug_assert(err == SR_ERR_OK);
-	srplug_assert(fd >= 0);
-
-	/* Unregister from asynchronous poller. */
-	upoll_unregister(poller, fd);
-
-	srplug_daemon_debug("subscription worker disabled");
-}
-
-#define srplug_subs_assert_change(_sub) \
-	srplug_assert(_sub); \
-	srplug_assert((_sub)->module); \
-	srplug_assert((_sub)->module[0]); \
-	srplug_assert((_sub)->on_change); \
-	srplug_assert(!((_sub)->options & \
-	                (SR_SUBSCR_NO_THREAD | SR_SUBSCR_THREAD_SUSPEND)))
-
-static int
-srplug_subs_register_change(struct srplug_subs_work *        worker,
-                            sr_session_ctx_t *               session,
-                            const struct srplug_change_sub * subscription,
-                            const struct upoll *             poller)
-{
-	srplug_assert(worker);
-	srplug_assert(session);
-	srplug_subs_assert_change(subscription);
-	srplug_assert(poller);
-
-	int err;
-
-	err = sr_module_change_subscribe(
-		session,
-		subscription->module,
-		subscription->xpath,
-		subscription->on_change,
-		subscription->data,
-		subscription->priority,
-		subscription->options | SR_SUBSCR_NO_THREAD,
-		&worker->ctx);
-	if (err == SR_ERR_OK)
-		return 0;
-
-	if (err == SR_ERR_NO_MEMORY)
-		abort();
-
-	srplug_daemon_info("'%s': "
-	                   "cannot register configuration data handler: %s",
-	                   subscription->xpath ? subscription->xpath : "",
-	                   sr_strerror(err));
-
-	return -EPERM;
-}
-
-#define srplug_subs_assert_oper(_sub) \
-	srplug_assert(_sub); \
-	srplug_assert((_sub)->module); \
-	srplug_assert((_sub)->module[0]); \
-	srplug_assert((_sub)->on_get); \
-	srplug_assert(!((_sub)->options & \
-	                (SR_SUBSCR_NO_THREAD | SR_SUBSCR_THREAD_SUSPEND)))
-
-static int
-srplug_subs_register_oper(struct srplug_subs_work *      worker,
-                          sr_session_ctx_t *             session,
-                          const struct srplug_oper_sub * subscription,
-                          const struct upoll *           poller)
-{
-	srplug_assert(worker);
-	srplug_assert(session);
-	srplug_subs_assert_oper(subscription);
-	srplug_assert(poller);
-
-	int err;
-
-	err = sr_oper_get_subscribe(
-		session,
-		subscription->module,
-		subscription->xpath,
-		subscription->on_get,
-		subscription->data,
-		subscription->options | SR_SUBSCR_NO_THREAD,
-		&worker->ctx);
-	if (err == SR_ERR_OK)
-		return 0;
-
-	if (err == SR_ERR_NO_MEMORY)
-		abort();
-
-	srplug_daemon_info("'%s': cannot register operational data handler: %s",
-	                   subscription->xpath ? subscription->xpath : "",
-	                   sr_strerror(err));
-
-	return -EPERM;
-}
-
-#define srplug_subs_assert_rpc(_sub) \
-	srplug_assert(_sub); \
-	srplug_assert((_sub)->xpath); \
-	srplug_assert((_sub)->xpath[0]); \
-	srplug_assert((_sub)->on_rpc); \
-	srplug_assert(!((_sub)->options & \
-	                (SR_SUBSCR_NO_THREAD | SR_SUBSCR_THREAD_SUSPEND)))
-
-static int
-srplug_subs_register_rpc(struct srplug_subs_work *      worker,
-                          sr_session_ctx_t *            session,
-                          const struct srplug_rpc_sub * subscription,
-                          const struct upoll *          poller)
-{
-	srplug_assert(worker);
-	srplug_assert(session);
-	srplug_subs_assert_rpc(subscription);
-	srplug_assert(poller);
-
-	int err;
-
-	err = sr_rpc_subscribe(
-		session,
-		subscription->xpath,
-		subscription->on_rpc,
-		subscription->data,
-		subscription->priority,
-		subscription->options | SR_SUBSCR_NO_THREAD,
-		&worker->ctx);
-	if (err == SR_ERR_OK)
-		return 0;
-
-	if (err == SR_ERR_NO_MEMORY)
-		abort();
-
-	srplug_daemon_info("'%s': cannot register RPC / action handler: %s",
-	                   subscription->xpath,
-	                   sr_strerror(err));
-
-	return -EPERM;
-}
-
-static void
-srplug_subs_clear(struct srplug_subs_work * worker)
-{
-	srplug_assert(worker);
-	srplug_assert(!etux_timer_is_armed(&worker->tmr));
-
-	int err;
-
-	/* Free all subscribtions (worker->ctx may be NULL here). */
-	err = sr_unsubscribe(worker->ctx);
-	if (err != SR_ERR_OK) {
-#warning REVIEW ME: What should we do here in case of failure ?! May this really happen ?!
-		srplug_daemon_warn("cannot clear subscriptions: %s",
-		                   sr_strerror(err));
-	}
-
-	worker->ctx = NULL;
-}
-
-static void
-srplug_subs_init(struct srplug_subs_work * worker)
-{
-	srplug_assert(worker);
-
-	worker->ctx = NULL;
-	etux_timer_init(&worker->tmr, srplug_subs_expire);
-
-}
-
-static void
-srplug_subs_fini(struct srplug_subs_work * worker)
-{
-	srplug_assert(worker);
-
-	srplug_subs_clear(worker);
-}
+/******************************************************************************
+ * Signal handling.
+ ******************************************************************************/
 
 static
 int
@@ -426,7 +88,7 @@ srplug_sigs_dispatch(struct upoll_worker * worker,
 	case SIGQUIT:
 	case SIGTERM:
 		/* Tell caller we were requested to terminate. */
-		srplug_daemon_debug("interrupted by signal '%s'.",
+		srplug_daemon_debug("interrupted by signal '%s'",
 		                     strsignal((int)info.ssi_signo));
 		return -ESHUTDOWN;
 
@@ -500,14 +162,14 @@ srplug_sigs_init(struct srplug_sigs_work * worker, const struct upoll * poller)
 #warning TODO: SIG_IGN signals instead !!
 	usig_procmask(SIG_SETMASK, &blk, NULL);
 
-	srplug_daemon_debug("signal handlers registered.");
+	srplug_daemon_debug("signal handlers registered");
 
 	return 0;
 
 close:
 	usig_close_fd(worker->fd);
 err:
-	srplug_daemon_err("cannot setup signal handlers: %s.", msg);
+	srplug_daemon_err("cannot setup signal handlers: %s", msg);
 
 	return ret;
 }
@@ -523,7 +185,252 @@ srplug_sigs_fini(const struct srplug_sigs_work * worker,
 	upoll_unregister(poller, worker->fd);
 	usig_close_fd(worker->fd);
 
-	srplug_daemon_debug("signal handlers unregistered.");
+	srplug_daemon_debug("signal handlers unregistered");
+}
+
+/******************************************************************************
+ * Utilities
+ ******************************************************************************/
+
+static void
+srplug_adjust_tmr(struct etux_timer * timer, const struct timespec * tmout)
+{
+	srplug_assert(timer);
+	srplug_assert(tmout);
+
+	if (tmout->tv_sec || tmout->tv_nsec) {
+		struct timespec tm;
+
+		/* Compute requested timeout absolute time. */
+		utime_monotonic_now(&tm);
+		utime_tspec_add_clamp(&tm, tmout);
+
+		/*
+		 * And arm the timer if necessary, i.e., if it is not armed or
+		 * if its expiry date is later than the requested one.
+		 */
+		if (!etux_timer_is_armed(timer) ||
+		    utime_tspec_after(etux_timer_expiry_tspec(timer), &tm))
+			etux_timer_arm_tspec(timer, &tm);
+	}
+	else
+		etux_timer_cancel(timer);
+}
+
+static
+void
+srplug_process_subs(sr_subscription_ctx_t * subscriptions,
+                    sr_session_ctx_t *      session,
+                    struct etux_timer *     timer)
+{
+	srplug_assert(subscriptions);
+	srplug_assert(session);
+	srplug_assert(timer);
+
+	struct timespec tmout;
+	int             err;
+
+	/*
+	 * No need to initialize `tmout' since sr_subscription_process_events()
+	 * will zero it out.
+	 */
+	err = sr_subscription_process_events(subscriptions, session, &tmout);
+	switch (err) {
+	case SR_ERR_OK:
+		break;
+
+	case SR_ERR_TIME_OUT:
+		/*
+		 * Reschedule a call to sr_subscription_process_events() no
+		 * later than 100 milliseconds in the future.
+		 */
+		tmout.tv_sec = 0;
+		tmout.tv_nsec = 100000000;
+		break;
+
+	case SR_ERR_NO_MEMORY: /* Not enough memory. */
+		abort();
+
+	default:
+		srplug_daemon_err("failed to process subscription events: %s",
+		                  sr_strerror(err));
+		return;
+	}
+
+	/* Adjust timer configuration. */
+	srplug_adjust_tmr(timer, &tmout);
+}
+
+static void
+srplug_clear_subs(sr_subscription_ctx_t * subscriptions)
+{
+	int err;
+
+#warning REVIEW ME: What should we do here in case of failure ?! May this really happen ?!
+
+	/* Free all subscribtions (worker->ctx may be NULL here). */
+	err = sr_unsubscribe(subscriptions);
+	if (err != SR_ERR_OK)
+		srplug_daemon_warn("cannot clear subscriptions: %s",
+		                   sr_strerror(err));
+}
+
+#define srplug_assert_change_sub(_sub) \
+	srplug_assert(_sub); \
+	srplug_assert((_sub)->module); \
+	srplug_assert((_sub)->module[0]); \
+	srplug_assert((_sub)->on_change); \
+	srplug_assert(!((_sub)->options & \
+	                (SR_SUBSCR_NO_THREAD | SR_SUBSCR_THREAD_SUSPEND)))
+
+static int
+srplug_register_change_sub(sr_subscription_ctx_t **         subscriptions,
+                           sr_session_ctx_t *               session,
+                           const struct srplug_change_sub * subscription,
+                           const struct upoll *             poller)
+{
+	srplug_assert(subscriptions);
+	srplug_assert(session);
+	srplug_assert_change_sub(subscription);
+	srplug_assert(poller);
+
+	int err;
+
+	err = sr_module_change_subscribe(
+		session,
+		subscription->module,
+		subscription->xpath,
+		subscription->on_change,
+		subscription->data,
+		subscription->priority,
+		subscription->options | SR_SUBSCR_NO_THREAD,
+		subscriptions);
+	if (err == SR_ERR_OK)
+		return 0;
+
+	if (err == SR_ERR_NO_MEMORY)
+		abort();
+
+	srplug_daemon_info("'%s': "
+	                   "cannot register configuration data handler: %s",
+	                   subscription->xpath ? subscription->xpath : "",
+	                   sr_strerror(err));
+
+	return -EPERM;
+}
+
+#define srplug_assert_oper_sub(_sub) \
+	srplug_assert(_sub); \
+	srplug_assert((_sub)->module); \
+	srplug_assert((_sub)->module[0]); \
+	srplug_assert((_sub)->on_get); \
+	srplug_assert(!((_sub)->options & \
+	                (SR_SUBSCR_NO_THREAD | SR_SUBSCR_THREAD_SUSPEND)))
+
+static int
+srplug_register_oper_sub(sr_subscription_ctx_t **       subscriptions,
+                         sr_session_ctx_t *             session,
+                         const struct srplug_oper_sub * subscription,
+                         const struct upoll *           poller)
+{
+	srplug_assert(subscriptions);
+	srplug_assert(session);
+	srplug_assert_oper_sub(subscription);
+	srplug_assert(poller);
+
+	int err;
+
+	err = sr_oper_get_subscribe(
+		session,
+		subscription->module,
+		subscription->xpath,
+		subscription->on_get,
+		subscription->data,
+		subscription->options | SR_SUBSCR_NO_THREAD,
+		subscriptions);
+	if (err == SR_ERR_OK)
+		return 0;
+
+	if (err == SR_ERR_NO_MEMORY)
+		abort();
+
+	srplug_daemon_info("'%s': cannot register operational data handler: %s",
+	                   subscription->xpath ? subscription->xpath : "",
+	                   sr_strerror(err));
+
+	return -EPERM;
+}
+
+#define srplug_assert_rpc_sub(_sub) \
+	srplug_assert(_sub); \
+	srplug_assert((_sub)->xpath); \
+	srplug_assert((_sub)->xpath[0]); \
+	srplug_assert((_sub)->on_rpc); \
+	srplug_assert(!((_sub)->options & \
+	                (SR_SUBSCR_NO_THREAD | SR_SUBSCR_THREAD_SUSPEND)))
+
+static int
+srplug_register_rpc_sub(sr_subscription_ctx_t **      subscriptions,
+                        sr_session_ctx_t *            session,
+                        const struct srplug_rpc_sub * subscription,
+                        const struct upoll *          poller)
+{
+	srplug_assert(subscriptions);
+	srplug_assert(session);
+	srplug_assert_rpc_sub(subscription);
+	srplug_assert(poller);
+
+	int err;
+
+	err = sr_rpc_subscribe(
+		session,
+		subscription->xpath,
+		subscription->on_rpc,
+		subscription->data,
+		subscription->priority,
+		subscription->options | SR_SUBSCR_NO_THREAD,
+		subscriptions);
+	if (err == SR_ERR_OK)
+		return 0;
+
+	if (err == SR_ERR_NO_MEMORY)
+		abort();
+
+	srplug_daemon_info("'%s': cannot register RPC / action handler: %s",
+	                   subscription->xpath,
+	                   sr_strerror(err));
+
+	return -EPERM;
+}
+
+/******************************************************************************
+ * Sysrepo plugin logic when instantiated as a daemon.
+ ******************************************************************************/
+
+static
+int
+srplug_daemon_dispatch_subs(struct upoll_worker * worker,
+                            uint32_t              state __unused,
+                            const struct upoll *  poller __unused)
+{
+	srplug_assert(worker);
+	srplug_assert(state);
+	srplug_assert(!(state & EPOLLOUT));
+	srplug_assert(!(state & EPOLLRDHUP));
+	srplug_assert(!(state & EPOLLPRI));
+	srplug_assert(!(state & EPOLLHUP));
+	srplug_assert(!(state & EPOLLERR));
+	srplug_assert(state & EPOLLIN);
+	srplug_assert(poller);
+
+	struct srplug_daemon * dmn;
+
+	dmn = containerof(worker, struct srplug_daemon, sub_tmr);
+	srplug_daemon_assert(dmn);
+
+	srplug_process_subs(dmn->sub_ctx, dmn->sess, &dmn->sub_tmr);
+
+	return 0;
 }
 
 static int
@@ -534,11 +441,35 @@ srplug_daemon_enable_subs(struct srplug_daemon * daemon)
 	int err;
 
 	if (!daemon->sub_cnt) {
-		err = srplug_subs_enable(&daemon->subs, &daemon->poll);
+		srplug_assert(daemon->sub_ctx);
+		srplug_assert(!etux_timer_is_armed(&daemon->sub_tmr));
+
+		int fd;
+
+		err = sr_get_event_pipe(daemon->sub_ctx, &fd);
+		srplug_assert(err == SR_ERR_OK);
+		srplug_assert(fd >= 0);
+
+		err = upoll_register_dispatch(&daemon->poll,
+		                              fd,
+		                              EPOLLIN,
+		                              &daemon->sub_work,
+		                              srplug_daemon_dispatch_subs);
 		if (err) {
-			srplug_subs_clear(&daemon->subs);
+			if (err == -ENOMEM)
+				abort();
+
+			srplug_clear_subs(daemon->sub_ctx);
+			daemon->sub_ctx = NULL;
+
+			srplug_daemon_err("cannot enable subscription worker: "
+			                  "%s",
+			                  strerror(-err));
+
 			return err;
 		}
+
+		srplug_daemon_debug("subscription worker enabled");
 	}
 
 	daemon->sub_cnt++;
@@ -552,8 +483,24 @@ srplug_daemon_disable_subs(struct srplug_daemon * daemon)
 	srplug_daemon_assert(daemon);
 
 	if (daemon->sub_cnt) {
-		srplug_subs_disable(&daemon->subs, &daemon->poll);
+		srplug_assert(daemon->sub_work.dispatch);
+		srplug_assert(daemon->sub_ctx);
+
+		int fd;
+		int err;
+
+		etux_timer_cancel(&daemon->sub_tmr);
+
+		err = sr_get_event_pipe(daemon->sub_ctx, &fd);
+		srplug_assert(err == SR_ERR_OK);
+		srplug_assert(fd >= 0);
+
+		/* Unregister from asynchronous poller. */
+		upoll_unregister(&daemon->poll, fd);
+
 		daemon->sub_cnt = 0;
+
+		srplug_daemon_debug("subscription worker disabled");
 	}
 }
 
@@ -562,17 +509,19 @@ srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
                                const struct srplug_change_sub * subscription)
 {
 	srplug_daemon_assert(daemon);
-	srplug_subs_assert_change(subscription);
+	srplug_assert_change_sub(subscription);
 
 	int err;
 
-	err = srplug_subs_register_change(&daemon->subs,
-	                                  daemon->sess,
-	                                  subscription,
-	                                  &daemon->poll);
+	/* Register the configuration data subscription handler. */
+	err = srplug_register_change_sub(&daemon->sub_ctx,
+	                                 daemon->sess,
+	                                 subscription,
+	                                 &daemon->poll);
 	if (err)
 		return err;
 
+	/* Enable asynchronous processing of subscriptions. */
 	return srplug_daemon_enable_subs(daemon);
 }
 
@@ -581,17 +530,19 @@ srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
                              const struct srplug_oper_sub * subscription)
 {
 	srplug_daemon_assert(daemon);
-	srplug_subs_assert_oper(subscription);
+	srplug_assert_oper_sub(subscription);
 
 	int err;
 
-	err = srplug_subs_register_oper(&daemon->subs,
-	                                daemon->sess,
-	                                subscription,
-	                                &daemon->poll);
+	/* Register the operational data subscription handler. */
+	err = srplug_register_oper_sub(&daemon->sub_ctx,
+	                               daemon->sess,
+	                               subscription,
+	                               &daemon->poll);
 	if (err)
 		return err;
 
+	/* Enable asynchronous processing of subscriptions. */
 	return srplug_daemon_enable_subs(daemon);
 }
 
@@ -600,17 +551,19 @@ srplug_daemon_rpc_subscribe(struct srplug_daemon *        daemon,
                             const struct srplug_rpc_sub * subscription)
 {
 	srplug_daemon_assert(daemon);
-	srplug_subs_assert_rpc(subscription);
+	srplug_assert_rpc_sub(subscription);
 
 	int err;
 
-	err = srplug_subs_register_rpc(&daemon->subs,
-	                               daemon->sess,
-	                               subscription,
-	                               &daemon->poll);
+	/* Register the RPC subscription handler. */
+	err = srplug_register_rpc_sub(&daemon->sub_ctx,
+	                              daemon->sess,
+	                              subscription,
+	                              &daemon->poll);
 	if (err)
 		return err;
 
+	/* Enable asynchronous processing of subscriptions. */
 	return srplug_daemon_enable_subs(daemon);
 }
 
@@ -627,6 +580,20 @@ srplug_daemon_poll(const struct srplug_daemon * daemon)
 	} while (!ret || (ret == -ETIME));
 
 	return (ret == -ESHUTDOWN) ? 0 : ret;
+}
+
+static
+void
+srplug_daemon_expire_subs(struct etux_timer * timer)
+{
+	srplug_assert(timer);
+
+	const struct srplug_daemon * dmn;
+
+	dmn = containerof(timer, struct srplug_daemon, sub_tmr);
+	srplug_daemon_assert(dmn);
+
+	srplug_process_subs(dmn->sub_ctx, dmn->sess, timer);
 }
 
 int
@@ -655,8 +622,8 @@ srplug_daemon_open(struct srplug_daemon * daemon, unsigned int poll_nr)
 	}
 
 	/*
-	 * Add 2 additional potential polling workers for subscription and
-	 * signal handling workers.
+	 * Add 2 additional polling workers for subscription and signal handling
+	 * workers.
 	 */
 	err = upoll_open(&daemon->poll, poll_nr + 2);
 	if (err) {
@@ -669,7 +636,8 @@ srplug_daemon_open(struct srplug_daemon * daemon, unsigned int poll_nr)
 		goto close;
 
 	daemon->sess = sess;
-	srplug_subs_init(&daemon->subs);
+	daemon->sub_ctx = NULL;
+	etux_timer_init(&daemon->sub_tmr, srplug_daemon_expire_subs);
 	daemon->sub_cnt = 0;
 
 	srplug_daemon_debug("daemon initialized");
@@ -692,8 +660,14 @@ srplug_daemon_close(struct srplug_daemon * daemon)
 
 	sr_conn_ctx_t * conn = sr_session_get_connection(daemon->sess);
 
+	/* Stop asynchronouns processing of subscriptions. */
 	srplug_daemon_disable_subs(daemon);
-	srplug_subs_fini(&daemon->subs);
+
+	/* Release all subscriptions. */
+	srplug_assert(!etux_timer_is_armed(&daemon->sub_tmr));
+	srplug_clear_subs(daemon->sub_ctx);
+
+	/* Stop and close signal handling as well as main poller. */
 	srplug_sigs_fini(&daemon->sigs, &daemon->poll);
 	upoll_close(&daemon->poll);
 
