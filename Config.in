@@ -53,6 +53,7 @@ config NLIF_DAEMON
 	bool "nlifd daemon"
 	select NLIF_NOTIF
 	select NLIF_STORE
+	select NLIF_PRINT
 	default y
 	help
 	  Build the nlifd management daemon.

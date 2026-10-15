@@ -19,9 +19,9 @@ enum nlif_link_event {
 	nlif_assert((_lnk)->_present.group); \
 	nlif_assert((_lnk)->_len.ifname); \
 	nlif_assert(nlif_link_validate_name((_lnk)->ifname) == \
-	            (_lnk)->_len.ifname); \
+	            (ssize_t)(_lnk)->_len.ifname); \
 	nlif_assert((nlif_link_validate_alias((_lnk)->ifalias) == \
-	             (_lnk)->_len.ifalias)); \
+	             (ssize_t)(_lnk)->_len.ifalias)); \
 	nlif_assert(!((_lnk)->_present.linkinfo && \
 	              (_lnk)->linkinfo._len.kind) || \
 	            (strlen((_lnk)->linkinfo.kind) == \
