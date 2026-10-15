@@ -96,15 +96,9 @@ nlif_link_type_str(unsigned short type);
 #define NLIF_LINK_HWADDR_STRSZ \
 	((2U * ETH_ALEN) + (ETH_ALEN - 1U) + 1U)
 
-static inline char *
+extern const char *
 nlif_link_hwaddr_str(const struct ether_addr * hwaddr,
-                     char                      string[NLIF_LINK_HWADDR_STRSZ])
-{
-	nlif_assert(hwaddr);
-	nlif_assert(string);
-
-	return ether_ntoa_r(hwaddr, string);
-}
+                     char                      string[NLIF_LINK_HWADDR_STRSZ]);
 
 struct rt_link_getlink_rsp;
 

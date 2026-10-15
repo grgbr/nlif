@@ -18,10 +18,22 @@ module netlink-interfaces {
 	}
 
 	deviation "/if:interfaces/if:interface/if:link-up-down-trap-enable" {
-		deviate not-supported
+		deviate not-supported;
 	}
 
 	deviation "/if:interfaces/if:interface/if:last-change" {
-		deviate not-supported
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:higher-layer-if" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:lower-layer-if" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:speed" {
+		deviate not-supported;
 	}
 }

@@ -136,6 +136,37 @@ nlif_link_type_str(unsigned short type)
 	}
 }
 
+/*
+ * Don't use ether_ntoa_r() as it eats leading zeros of address octets.
+ * This doesn't comply with the YANG `phys-address' typedef requirements.
+ * For more informations, see:
+ * - definition of `phys-address' leaf of RFC8343,
+ *   "A YANG Data Model for Interface Management" ;
+ * - definition of `phys-address' typedef of RFC9911,
+ *   "Common YANG Data Types".
+ */
+const char *
+nlif_link_hwaddr_str(const struct ether_addr * hwaddr,
+                     char                      string[NLIF_LINK_HWADDR_STRSZ])
+{
+	nlif_assert(hwaddr);
+	nlif_assert(string);
+
+	int ret;
+
+	ret = sprintf(string,
+	              "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
+	              hwaddr->ether_addr_octet[0],
+	              hwaddr->ether_addr_octet[1],
+	              hwaddr->ether_addr_octet[2],
+	              hwaddr->ether_addr_octet[3],
+	              hwaddr->ether_addr_octet[4],
+	              hwaddr->ether_addr_octet[5]);
+	nlif_assert(ret == (NLIF_LINK_HWADDR_STRSZ - 1));
+
+	return string;
+}
+
 void
 nlif_link_print(const struct rt_link_getlink_rsp * link, FILE * stdio)
 {
