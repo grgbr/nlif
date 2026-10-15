@@ -2,6 +2,8 @@
 #include <utils/poll.h>
 #include <utils/signal.h>
 #include <stdlib.h>
+#include <getopt.h>
+#include <sysexits.h>
 
 struct nlifd_notif_work {
 	struct upoll_worker base;
@@ -226,20 +228,416 @@ nlifd_fini_sigs(const struct nlifd_sigs_work * worker,
 	nlif_dbg("signal handlers unregistered.");
 }
 
-int
-main(int argc, const char * argv[])
+struct nlifd_conf {
+#if defined(CONFIG_NLIF_STDLOG)
+	struct elog_stdio_conf  stdlog;
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+#if defined(CONFIG_NLIF_SYSLOG)
+	struct elog_syslog_conf syslog;
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+};
+
+static struct nlifd_conf *
+nlifd_alloc_conf(void)
 {
+	return nlif_malloc(sizeof(struct nlifd_conf));
+}
+
+static void
+nlifd_free_conf(struct nlifd_conf * config)
+{
+	nlif_free(config);
+}
+
+#if defined(CONFIG_NLIF_LOG)
+
+#define nlifd_early_log(_format, ...) \
+	fprintf(stderr, \
+	        "%s: " _format ".\n", \
+	        program_invocation_short_name, \
+	        ## __VA_ARGS__)
+
+#if defined(CONFIG_NLIF_STDLOG)
+
+static int
+nlifd_parse_stdlog_level(const char *             arg,
+                         struct elog_parse *      parse,
+                         struct elog_stdio_conf * config)
+{
+	if (!strcmp(arg, "none")) {
+		config->super.severity = -1;
+		return 0;
+	}
+
+	if (elog_parse_stdio_severity(parse, config, arg)) {
+		nlifd_early_log("%s", parse->error);
+		return -EPERM;
+	}
+
+#if !defined(CONFIG_NLIF_DEBUG)
+	if (config->super.severity >= ELOG_DEBUG_SEVERITY) {
+		nlifd_early_log("unexpected stdio log severity");
+		return -EPERM;
+	}
+#endif /* !defined(CONFIG_NLIF_DEBUG) */
+
+	return 0;
+}
+
+#define NLIFD_USAGE_STDLOG_OPTS \
+"\n" \
+"    --stdlog-level=SEVERITY    -- set console log verbosity level to SEVERITY\n" \
+"                                  (defaults to " STROLL_STRING(CONFIG_NLIFD_STDLOG_SEVERITY) ")" \
+
+#else  /* !defined(CONFIG_NLIF_STDLOG) */
+
+#define NLIFD_USAGE_STDLOG_OPTS
+
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+
+#if defined(CONFIG_NLIF_SYSLOG)
+
+static int
+nlifd_parse_syslog_level(const char *              arg,
+                         struct elog_parse *       parse,
+                         struct elog_syslog_conf * config)
+{
+	if (!strcmp(arg, "none")) {
+		config->super.severity = -1;
+		return 0;
+	}
+
+	if (elog_parse_syslog_severity(parse, config, arg)) {
+		nlifd_early_log("%s", parse->error);
+		return -EPERM;
+	}
+
+#if !defined(CONFIG_NLIF_DEBUG)
+	if (config->super.severity >= ELOG_DEBUG_SEVERITY) {
+		nlifd_early_log("unexpected syslog log severity");
+		return -EPERM;
+	}
+#endif /* !defined(CONFIG_NLIF_DEBUG) */
+
+	return 0;
+}
+
+static int
+nlifd_parse_syslog_facility(const char *              arg,
+                            struct elog_parse *       parse,
+                            struct elog_syslog_conf * config)
+{
+	if (elog_parse_syslog_facility(parse, config, arg)) {
+		nlifd_early_log("%s", parse->error);
+		return -EPERM;
+	}
+
+	return 0;
+}
+
+#warning Replace STROLL_STRING() usage with appropriate replacement for facilities
+
+#define NLIFD_USAGE_SYSLOG_OPTS \
+"\n" \
+"    --syslog-level=SEVERITY    -- set syslog verbosity level to SEVERITY\n" \
+"                                  (defaults to " STROLL_STRING(CONFIG_NLIFD_SYSLOG_SEVERITY) ")\n" \
+"    --syslog-facitily=FACILITY -- log messages to syslog using FACILITY\n" \
+"                                  (defaults to " STROLL_STRING(CONFIG_NLIFD_SYSLOG_FACILITY) ")" \
+
+#define NLIFD_USAGE_FACILITY \
+	"\n" \
+	"    FACILITY := dflt|auth|authpriv|cron|daemon|ftp|lpr|mail|news|syslog|user|\n" \
+	"                local0|local1|local2|local3|local4|local5|local6|local7"
+
+#else  /* !defined(CONFIG_NLIF_SYSLOG) */
+
+#define NLIFD_USAGE_SYSLOG_OPTS
+#define NLIFD_USAGE_FACILITY
+
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+static void
+nlifd_init_log(const struct nlifd_conf * config)
+{
+	struct elog * logger = NULL;
+
+	elog_setup(ELOG_DFLT_TAG, ELOG_DFLT_PID);
+
+#if defined(CONFIG_NLIF_STDLOG) && defined(CONFIG_NLIF_SYSLOG)
+	if ((config->stdlog.super.severity >= 0) &&
+	    (config->syslog.super.severity >= 0)) {
+#if defined(CONFIG_NLIF_DEBUG)
+		logger = (struct elog *)elog_create_multi(elog_destroy);
+#else  /* !defined(CONFIG_NLIF_DEBUG) */
+		logger = (struct elog *)elog_create_multi(elog_fini);
+#endif /* defined(CONFIG_NLIF_DEBUG) */
+		if (!logger)
+			abort();
+	}
+#endif /* defined(CONFIG_NLIF_STDLOG) && defined(CONFIG_NLIF_SYSLOG) */
+
+#if defined(CONFIG_NLIF_STDLOG)
+	if (config->stdlog.super.severity >= 0) {
+		struct elog * stdlog;
+
+		stdlog = (struct elog *)elog_create_stdio(&config->stdlog);
+		if (!stdlog)
+			abort();
+
+		if (!logger) {
+			logger = stdlog;
+			goto setup;
+		}
+
+		if (elog_register_multi_sublog((struct elog_multi *)logger,
+		                               stdlog))
+			abort();
+	}
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+
+#if defined(CONFIG_NLIF_SYSLOG)
+	if (config->syslog.super.severity >= 0) {
+		struct elog * syslog;
+
+		syslog = (struct elog *)elog_create_syslog(&config->syslog);
+		if (!syslog)
+			abort();
+
+		if (!logger) {
+			logger = syslog;
+			goto setup;
+		}
+
+		if (elog_register_multi_sublog((struct elog_multi *)logger,
+		                               syslog))
+			abort();
+	}
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+setup:
+	nlif_log_init(logger);
+}
+
+static void
+nlifd_fini_log(void)
+{
+	nlif_log_fini();
+}
+
+#if defined(CONFIG_NLIF_DEBUG)
+
+#define NLIFD_USAGE_DEBUG_LEVEL "|debug"
+
+#else  /* !defined(CONFIG_ELOGD_DEBUG) */
+
+#define NLIFD_USAGE_DEBUG_LEVEL
+
+#endif /* defined(CONFIG_ELOGD_DEBUG) */
+
+#define NLIFD_USAGE_LEVEL \
+	"\n" \
+	"Where:\n" \
+	"    SEVERITY := none|dflt|emerg|alert|crit|err|warn|notice|info" \
+	NLIFD_USAGE_DEBUG_LEVEL
+
+#else  /* !defined(CONFIG_NLIF_LOG) */
+
+static void
+nlifd_init_log(const struct nlifd_conf * config __unused)
+{
+}
+
+static void
+nlifd_fini_log(void)
+{
+}
+
+#define NLIFD_USAGE_LEVEL
+#define NLIFD_USAGE_FACILITY
+
+#endif /* defined(CONFIG_NLIF_LOG) */
+
+#define NLIFD_USAGE \
+"Usage: %1$s [OPTIONS]\n" \
+"Network interface management daemon.\n" \
+"\n" \
+"With OPTIONS:" \
+NLIFD_USAGE_STDLOG_OPTS \
+NLIFD_USAGE_SYSLOG_OPTS \
+"\n" \
+"    -h|--help                  -- this help message\n" \
+NLIFD_USAGE_LEVEL \
+NLIFD_USAGE_FACILITY
+
+static void
+nlifd_show_usage(void)
+{
+	fprintf(stderr, NLIFD_USAGE "\n", program_invocation_short_name);
+}
+
+static int
+nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
+{
+#if defined(CONFIG_NLIF_STDLOG)
+	struct elog_parse                    stdlog_parse;
+	static const struct elog_stdio_conf  stdlog_dflt_conf = {
+		.super.severity = CONFIG_NLIFD_STDLOG_SEVERITY,
+		.format         = ELOG_TAG_FMT
+	};
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+
+#if defined(CONFIG_NLIF_SYSLOG)
+	struct elog_parse                    syslog_parse;
+	static const struct elog_syslog_conf syslog_dflt_conf = {
+		.super.severity = CONFIG_NLIFD_SYSLOG_SEVERITY,
+		.format         = ELOG_TAG_FMT | ELOG_PID_FMT,
+		.facility       = CONFIG_NLIFD_SYSLOG_FACILITY
+	};
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+	struct nlifd_conf * cfg;
+	int                 ret = EXIT_FAILURE;
+
+	cfg = nlifd_alloc_conf();
+
+#if defined(CONFIG_NLIF_STDLOG)
+	elog_init_stdio_parse(&stdlog_parse, &cfg->stdlog, &stdlog_dflt_conf);
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+#if defined(CONFIG_NLIF_SYSLOG)
+	elog_init_syslog_parse(&syslog_parse, &cfg->syslog, &syslog_dflt_conf);
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+	while (true) {
+		enum {
+#if defined(CONFIG_NLIF_STDLOG)
+			STDLOG_LVL_OPT  = 1U << 0,
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+#if defined(CONFIG_NLIF_SYSLOG)
+			SYSLOG_LVL_OPT  = 1U << 1,
+			SYSLOG_FAC_OPT  = 1U << 2,
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+			HELP_OPT        = 'h',
+			MISSING_OPT     = ':',
+			UNKNOWN_OPT     = '?'
+		};
+
+		int                        opt;
+		static const struct option opts[] = {
+#if defined(CONFIG_NLIF_STDLOG)
+			{ "stdlog-level",    required_argument, NULL, STDLOG_LVL_OPT },
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+#if defined(CONFIG_NLIF_SYSLOG)
+			{ "syslog-level",    required_argument, NULL, SYSLOG_LVL_OPT },
+			{ "syslog-facility", required_argument, NULL, SYSLOG_FAC_OPT },
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+			{ "help",            no_argument,       NULL, HELP_OPT },
+			{ NULL,              0,                 NULL, -1 }
+		};
+
+		opt = getopt_long(argc, argv, ":h", opts, NULL);
+		if (opt < 0)
+			break;
+
+		switch (opt) {
+#if defined(CONFIG_NLIF_STDLOG)
+		case STDLOG_LVL_OPT:
+			if (nlifd_parse_stdlog_level(optarg,
+			                             &stdlog_parse,
+			                             &cfg->stdlog))
+				goto out;
+			break;
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+
+#if defined(CONFIG_NLIF_SYSLOG)
+		case SYSLOG_LVL_OPT:
+			if (nlifd_parse_syslog_level(optarg,
+			                             &syslog_parse,
+			                             &cfg->syslog))
+				goto out;
+			break;
+
+		case SYSLOG_FAC_OPT:
+			if (nlifd_parse_syslog_facility(optarg,
+			                                &syslog_parse,
+			                                &cfg->syslog))
+				goto out;
+			break;
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+		case HELP_OPT:
+			ret = EX_USAGE;
+			goto usage;
+
+		case MISSING_OPT:
+			nlifd_early_log("option '%s' requires an argument",
+			                argv[optind - 1]);
+			goto usage;
+
+		case UNKNOWN_OPT:
+			nlifd_early_log("unrecognized option '%s'",
+			                argv[optind - 1]);
+			goto usage;
+
+		default:
+			nlifd_early_log("unexpected option parsing error");
+			goto usage;
+		}
+	}
+
+	if (argc - optind) {
+		nlifd_early_log("invalid number of arguments");
+		goto usage;
+	}
+
+#if defined(CONFIG_NLIF_STDLOG)
+	elog_fini_parse(&stdlog_parse);
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+#if defined(CONFIG_NLIF_SYSLOG)
+	elog_fini_parse(&syslog_parse);
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+	*config = cfg;
+
+	return EXIT_SUCCESS;
+
+usage:
+	nlifd_show_usage();
+out:
+#if defined(CONFIG_NLIF_DEBUG)
+#if defined(CONFIG_NLIF_STDLOG)
+	elog_fini_parse(&stdlog_parse);
+#endif /* defined(CONFIG_NLIF_STDLOG) */
+#if defined(CONFIG_NLIF_SYSLOG)
+	elog_fini_parse(&syslog_parse);
+#endif /* defined(CONFIG_NLIF_SYSLOG) */
+
+	nlifd_free_conf(cfg);
+#endif /* defined(CONFIG_NLIF_DEBUG) */
+
+	return ret;
+}
+
+int
+main(int argc, char * const argv[])
+{
+	struct nlifd_conf *     cfg;
+	int                     ret = EXIT_FAILURE;
 	struct upoll            poll;
 	struct nlifd_sigs_work  sigs;
 	struct nlif_gate        gate;
 	struct nlifd_notif_work notif = NLIFD_INIT_NOTIF_WORK(notif, &gate);
 	struct nlif_store       store = NLIF_STORE_INIT(store);
-	int                     ret;
+
+	ret = nlifd_parse_cmdln(argc, argv, &cfg);
+	if (ret)
+		return EXIT_FAILURE;
+	nlifd_init_log(cfg);
+	nlifd_free_conf(cfg);
 
 	ret = upoll_open(&poll, 2U);
 	if (ret) {
 		nlif_err("cannot open poller: %s.", strerror(-ret));
-		return EXIT_FAILURE;
+		goto fini_log;
 	}
 
 	ret = nlifd_init_sigs(&sigs, &poll);
@@ -268,6 +666,8 @@ fini_sigs:
 	nlifd_fini_sigs(&sigs, &poll);
 close_poll:
 	upoll_close(&poll);
+fini_log:
+	nlifd_fini_log();
 
 	return !ret ? EXIT_SUCCESS : EXIT_FAILURE;
 }

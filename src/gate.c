@@ -1,5 +1,6 @@
 #include "gate.h"
 #include "link.h"
+#include <fcntl.h>
 #include <stdarg.h>
 
 static struct rt_link_getlink_req *
@@ -339,12 +340,21 @@ nlif_gate_init(struct nlif_gate * gate)
 	nlif_assert(gate);
 
 	struct ynl_error err;
+	int              ret;
+	int              flags;
 
 	gate->sock = ynl_sock_create(&ynl_rt_link_family, &err);
 	if (!gate->sock) {
 		nlif_err("cannot open gate: %s.", err.msg);
 		return nlif_ynl_err(&err);
 	}
+
+	ret = ynl_socket_get_fd(gate->sock);
+	flags = fcntl(ret, F_GETFD);
+	nlif_assert(flags >= 0);
+
+	ret = fcntl(ret, F_SETFD, flags | FD_CLOEXEC);
+	nlif_assert(!ret);
 
 #if defined(CONFIG_NLIF_OBSRV)
 	nlif_obsrv_setup_notifier(&gate->notif);

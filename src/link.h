@@ -38,6 +38,8 @@ nlif_link_validate_strid(const char * string);
 
 #if defined(CONFIG_NLIF_PRINT)
 
+#include <stdio.h>
+
 #define NLIF_LINK_FLAGS_STRSZ (256U)
 
 extern char *
