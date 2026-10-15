@@ -1,3 +1,112 @@
+#include "repo.h"
+#include "srplug.h"
+#include <elog/elog.h>
+#include <getopt.h>
+#include <sysexits.h>
+#include <string.h>
+
+#if 0
+static const struct elog_stdio_conf  conf = {
+	.super.severity = ELOG_DEBUG_SEVERITY,
+	.format         = ELOG_TAG_FMT
+};
+
+static struct elog_stdio logger;
+
+static int
+on_change(sr_session_ctx_t * session,
+          uint32_t           sub_id,
+          const char *       module_name,
+          const char *       xpath,
+          sr_event_t         event,
+          uint32_t           request_id,
+          void *             private_data)
+{
+	int        rc;
+	sr_val_t * val;
+
+	(void)sub_id;
+	(void)module_name;
+	(void)xpath;
+	(void)event;
+	(void)request_id;
+	(void)private_data;
+
+	/*
+	 * Get the value from sysrepo, we do not care if the value did not
+	 * change in our case.
+	 */
+	rc = sr_get_item(session, "/oven:oven/temperature", 0, &val);
+	if (rc != SR_ERR_OK)
+		goto sr_error;
+
+	elog_debug((struct elog *)&logger,
+	           "temperature: %hhu\n",
+	           val->data.uint8_val);
+	sr_free_val(val);
+
+	rc = sr_get_item(session, "/oven:oven/turned-on", 0, &val);
+	if (rc != SR_ERR_OK)
+		goto sr_error;
+
+	elog_debug((struct elog *)&logger,
+	           "turned-on: %d\n",
+	           (int)val->data.bool_val);
+	sr_free_val(val);
+
+	return SR_ERR_OK;
+
+sr_error:
+	elog_err((struct elog *)&logger,
+	         "change callback failed: %s\n",
+	         sr_strerror(rc));
+
+	return rc;
+}
+
+static const struct srplug_change_sub chg_sub = {
+	.module    = "oven",
+	.xpath     = NULL,
+	.on_change = on_change,
+	.data      = NULL,
+	.priority  = 0,
+	.options   = SR_SUBSCR_ENABLED | SR_SUBSCR_DONE_ONLY
+};
+
+int
+main(void)
+{
+	struct srplug_daemon dmn;
+	int                  ret;
+
+	elog_init_stdio(&logger, &conf);
+	srplug_setup((struct elog *)&logger);
+
+	ret = srplug_daemon_init(&dmn, 2U);
+	if (ret) {
+		fprintf(stderr, "init failed: %s\n", strerror(-ret));
+		goto out;
+	}
+
+	ret = srplug_daemon_change_subscribe(&dmn, &chg_sub);
+	if (ret)
+		goto fini;
+
+	ret = srplug_daemon_poll(&dmn);
+	if (ret)
+		fprintf(stderr, "daemon loop failed: %s\n", strerror(-ret));
+
+fini:
+	srplug_daemon_fini(&dmn);
+out:
+	elog_fini_stdio(&logger);
+
+	return ret ? EXIT_FAILURE : EXIT_SUCCESS;
+}
+#endif
+
+#if 0
+
 #include "store.h"
 #include <utils/poll.h>
 #include <utils/signal.h>
@@ -105,141 +214,7 @@ nlifd_disable_notif(struct nlifd_notif_work * worker,
 
 	nlif_debug("notification worker disabled.");
 }
-
-struct nlifd_sigs_work {
-	struct upoll_worker base;
-	int                 fd;
-};
-
-static
-int
-nlifd_dispatch_sigs(struct upoll_worker * worker,
-                    uint32_t              state __unused,
-                    const struct upoll *  poller __unused)
-{
-	nlif_assert(worker);
-	nlif_assert(state);
-	nlif_assert(!(state & EPOLLOUT));
-	nlif_assert(!(state & EPOLLRDHUP));
-	nlif_assert(!(state & EPOLLPRI));
-	nlif_assert(!(state & EPOLLHUP));
-	nlif_assert(!(state & EPOLLERR));
-	nlif_assert(state & EPOLLIN);
-	nlif_assert(poller);
-
-	const struct nlifd_sigs_work * wk;
-	struct signalfd_siginfo        info;
-	int                            ret;
-
-	wk = containerof(worker, struct nlifd_sigs_work, base);
-	nlif_assert(wk);
-	nlif_assert(wk->fd > 0);
-
-	ret = usig_read_fd(wk->fd, &info, 1);
-	nlif_assert(ret);
-	if (ret < 0)
-		return (ret == -EAGAIN) ? 0 : ret;
-
-	switch (info.ssi_signo) {
-	case SIGHUP:
-		/* TODO: implement reload ! */
-	case SIGINT:
-	case SIGQUIT:
-	case SIGTERM:
-		/* Tell caller we were requested to terminate. */
-		nlif_debug("interrupted by signal '%s'.",
-		           strsignal((int)info.ssi_signo));
-		return -ESHUTDOWN;
-
-	case SIGUSR1:
-	case SIGUSR2:
-		/* Silently ignore these... */
-		return 0;
-
-	default:
-		nlif_assert(0);
-	}
-
-	unreachable();
-}
-
-static int
-nlifd_init_sigs(struct nlifd_sigs_work * worker,
-                const struct upoll *     poller)
-{
-	nlif_assert(worker);
-	nlif_assert(poller);
-
-	sigset_t     msk = *usig_empty_msk;
-	sigset_t     blk = *usig_full_msk;
-	int          ret;
-	const char * msg __unused;
-
-	/* REVIEW ME !!
-	 * Do we need to ignore the following signals as performed by
-	 * sysrepo-plugind ??
-	 *
-	 * - SIGPIPE
-	 * - SIGTSTP
-	 * - SIGTTIN
-	 * - SIGTTOU
-	 *
-	 * Setup current working directory ??
-	 */
-
-	usig_addset(&msk, SIGHUP);
-	usig_addset(&msk, SIGINT);
-	usig_addset(&msk, SIGQUIT);
-	usig_addset(&msk, SIGTERM);
-	usig_addset(&msk, SIGUSR1);
-	usig_addset(&msk, SIGUSR2);
-
-	ret = usig_open_fd(&msk, SFD_NONBLOCK | SFD_CLOEXEC);
-	if (ret < 0) {
-		msg = "cannot open signal file";
-		goto err;
-	}
-
-	worker->base.dispatch = nlifd_dispatch_sigs;
-	worker->fd = ret;
-	ret = upoll_register(poller, ret, EPOLLIN, &worker->base);
-	if (ret) {
-		msg = "cannot register worker";
-		goto close;
-	}
-
-	usig_delset(&blk, SIGCONT);
-	usig_delset(&blk, SIGTSTP);
-	usig_delset(&blk, SIGTRAP);
-	usig_delset(&blk, SIGTTIN);
-	usig_delset(&blk, SIGTTOU);
-	usig_procmask(SIG_SETMASK, &blk, NULL);
-
-	nlif_debug("signal handlers registered.");
-
-	return 0;
-
-close:
-	usig_close_fd(worker->fd);
-err:
-	nlif_err("cannot setup signal handlers: %s.", msg);
-
-	return ret;
-}
-
-static void
-nlifd_fini_sigs(const struct nlifd_sigs_work * worker,
-                const struct upoll *           poller)
-{
-	nlif_assert(worker);
-	nlif_assert(worker->fd > 0);
-	nlif_assert(poller);
-
-	upoll_unregister(poller, worker->fd);
-	usig_close_fd(worker->fd);
-
-	nlif_debug("signal handlers unregistered.");
-}
+#endif
 
 struct nlifd_conf {
 #if defined(CONFIG_NLIF_DAEMON_STDLOG)
@@ -407,7 +382,7 @@ nlifd_create_syslog(const struct nlifd_conf * config __unused)
 "    --syslog-level=SEVERITY    -- set syslog verbosity level to SEVERITY\n" \
 "                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY) ")\n" \
 "    --syslog-facitily=FACILITY -- log messages to syslog using FACILITY\n" \
-"                                  (defaults to " STROLL_STRING(CONFIG_NLIF_DAEMON_SYSLOG_FACILITY) ")"
+"                                  (defaults to `" CONFIG_NLIF_DAEMON_SYSLOG_FACILITY_STRING "')"
 
 #define NLIFD_USAGE_FACILITY \
 	"\n" \
@@ -554,6 +529,8 @@ NLIFD_USAGE_SYSLOG_OPTS \
 NLIFD_USAGE_LEVEL \
 NLIFD_USAGE_FACILITY
 
+#include <sys/syslog.h>
+
 static void
 nlifd_show_usage(void)
 {
@@ -576,7 +553,7 @@ nlifd_parse_cmdln(int argc, char * const argv[], struct nlifd_conf ** config)
 	static const struct elog_syslog_conf syslog_dflt_conf = {
 		.super.severity = CONFIG_NLIF_DAEMON_SYSLOG_SEVERITY,
 		.format         = ELOG_TAG_FMT | ELOG_PID_FMT,
-		.facility       = CONFIG_NLIF_DAEMON_SYSLOG_FACILITY
+		.facility       = CONFIG_NLIF_DAEMON_SYSLOG_FACILITY_VALUE
 	};
 #endif /* defined(CONFIG_NLIF_DAEMON_SYSLOG) */
 
@@ -716,11 +693,8 @@ main(int argc, char * const argv[])
 	struct nlifd_conf *     cfg;
 	int                     ret = EXIT_FAILURE;
 	struct elog *           log;
-	struct upoll            poll;
-	struct nlifd_sigs_work  sigs;
-	struct nlif_gate        gate;
-	struct nlifd_notif_work notif = NLIFD_INIT_NOTIF_WORK(notif, &gate);
-	struct nlif_store       store = NLIF_STORE_INIT(store);
+	struct srplug_daemon    dmn;
+	struct nlif_repo        repo;
 
 	ret = nlifd_parse_cmdln(argc, argv, &cfg);
 	if (ret)
@@ -728,45 +702,24 @@ main(int argc, char * const argv[])
 	log = nlifd_create_log(cfg);
 	nlifd_free_conf(cfg);
 
-	ret = upoll_open(&poll, 2U);
-	if (ret) {
-		nlif_err("cannot open poller: %s.", strerror(-ret));
+	srplug_setup(log);
+
+	ret = srplug_daemon_open(&dmn, 1U);
+	if (ret)
 		goto fini_log;
-	}
 
-	ret = nlifd_init_sigs(&sigs, &poll);
+	ret = nlif_repo_open(&repo, srplug_daemon_poller(&dmn));
 	if (ret)
-		goto close_poll;
+		goto close_dmn;
 
-	ret = nlif_gate_init(&gate);
-	if (ret)
-		goto fini_sigs;
-
-	ret = nlifd_enable_notif(&notif, &store, &poll);
-	if (ret)
-		goto fini_store;
-
-	ret = nlif_store_load(&store, &gate);
-	if (ret)
-		goto disable;
-
-	do {
-		ret = upoll_process(&poll, -1);
-	} while (!ret || (ret == -EINTR));
+	ret = srplug_daemon_poll(&dmn);
 	if (ret == -ESHUTDOWN)
 		ret = 0;
 
-disable:
-	nlifd_disable_notif(&notif, &store, &poll);
-fini_store:
-	nlif_store_fini(&store);
+	nlif_repo_close(&repo, srplug_daemon_poller(&dmn));
 
-	nlif_gate_fini(&gate);
-
-fini_sigs:
-	nlifd_fini_sigs(&sigs, &poll);
-close_poll:
-	upoll_close(&poll);
+close_dmn:
+	srplug_daemon_close(&dmn);
 fini_log:
 	nlifd_destroy_log(log);
 
