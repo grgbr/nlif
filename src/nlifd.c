@@ -955,6 +955,25 @@ free:
  * Top-level logic.
  ******************************************************************************/
 
+static void
+nlifd_iface_push_oper_state(sr_session_ctx_t * session)
+{
+	struct ly_out * out;
+	sr_data_t *     data;
+	sr_error_t      err;
+
+	err = srplug_open_stdio_print(&out, stdout);
+	if (err == SR_ERR_OK) {
+		err = sr_get_oper_changes(session,
+		                          NLIFD_IETF_IFACE_YANG_MODULE,
+		                          &data);
+		if (err == SR_ERR_OK)
+			srplug_dat_print_data(data, LYD_JSON, out);
+
+		srplug_close_stdio_print(out);
+	}
+}
+
 static int
 nlifd_load(const struct srplug_daemon * daemon,
            const struct nlif_repo *     repository)
@@ -994,6 +1013,8 @@ nlifd_load(const struct srplug_daemon * daemon,
 		if (ret != SR_ERR_OK)
 			goto release;
 	}
+
+	nlifd_iface_push_oper_state(sess);
 
 	srplug_release_context(sess);
 
