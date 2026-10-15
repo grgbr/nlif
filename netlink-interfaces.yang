@@ -1,7 +1,7 @@
-module linux-interfaces {
+module netlink-interfaces {
 	yang-version 1.1;
-	namespace "urn:linux:yang:linux-interfaces";
-	prefix lin-if;
+	namespace "urn:netlink:yang:netlink-interfaces";
+	prefix nl-if;
 
 	import ietf-interfaces {
 		prefix if;

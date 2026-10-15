@@ -43,6 +43,18 @@ nlif_link_validate_name(const char * name);
 extern ssize_t
 nlif_link_validate_alias(const char * alias);
 
+static inline bool
+nlif_link_hwaddr_is_ucast(const struct ether_addr * address)
+{
+	return !(address->ether_addr_octet[0] & 0x1);
+}
+
+static inline bool
+nlif_link_hwaddr_is_mcast(const struct ether_addr * address)
+{
+	return !nlif_link_hwaddr_is_ucast(address);
+}
+
 #if defined(CONFIG_NLIF_PRINT)
 
 #include <stdio.h>
@@ -78,18 +90,6 @@ nlif_link_type_str(unsigned short type);
 
 #define NLIF_LINK_HWADDR_STRSZ \
 	((2U * ETH_ALEN) + (ETH_ALEN - 1U) + 1U)
-
-static inline bool
-nlif_link_hwaddr_is_ucast(const struct ether_addr * address)
-{
-	return !(address->ether_addr_octet[0] & 0x1);
-}
-
-static inline bool
-nlif_link_hwaddr_is_mcast(const struct ether_addr * address)
-{
-	return !nlif_link_hwaddr_is_ucast(address);
-}
 
 static inline char *
 nlif_link_hwaddr_str(const struct ether_addr * hwaddr,

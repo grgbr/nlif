@@ -7,22 +7,6 @@
 
 mainmenu "NetLink InterFace build configuration"
 
-config TOPDIR
-	string
-	option env="TOPDIR"
-
-menu "Sysrepo wrapper"
-
-source "$TOPDIR/srepo/Config.in"
-
-endmenu # "Sysrepo wrapper"
-
-menu "Sysrepo plugin"
-
-source "$TOPDIR/srplug/Config.in"
-
-endmenu # "Sysrepo plugin"
-
 config NLIF_ASSERT
 	bool "Assertion"
 	default n

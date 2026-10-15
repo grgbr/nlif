@@ -9,13 +9,8 @@ config-in   := Config.in
 
 subdirs     := lib
 
-subdirs     += srepo
-
-subdirs     += srplug
-srplug-deps := srepo
-
 subdirs     += src
-src-deps    := lib srplug
+src-deps    := lib
 
 subdirs     += sample
 sample-deps := lib

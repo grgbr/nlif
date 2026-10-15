@@ -1,21 +1,15 @@
 #include "repo.h"
 #include "lib/iface.h"
-#include "srplug/daemon.h"
-#include "srepo/schema.h"
-#include "srepo/data.h"
+#include <srutils/srplug/daemon.h>
+#include <srutils/srplug/data.h>
+#include <srutils/srepo/schema.h>
 #include "utils/string.h"
 #include <sysrepo/xpath.h>
 #include <sysexits.h>
 
 /******************************************************************************
- * Nlif sysrepo specific implementation.
+ * Various helpers.
  ******************************************************************************/
-
-#define NLIFD_IETF_IFACE_YANG_MODULE \
-	"ietf-interfaces"
-
-#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
-	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces"
 
 static sr_error_t
 nlifd_iface_error(int error)
@@ -54,51 +48,9 @@ nlifd_iface_error(int error)
 	}
 }
 
-static const char *
-nlifd_iface_type_str(unsigned short type, const char * kind)
-{
-	switch (type) {
-	case ARPHRD_ETHER:
-		{
-			if (!kind)
-				return "iana-if-type:ethernetCsmacd";
-			else if (!strcmp(kind, "bridge"))
-				return "iana-if-type:bridge";
-			else if (!strcmp(kind, "dummy"))
-				return "iana-if-type:other";
-			break;
-		}
-
-	case ARPHRD_LOOPBACK:
-		return "iana-if-type:softwareLoopback";
-
-	default:
-		break;
-	}
-
-	/* Unsupported. */
-	return NULL;
-}
-
-static int
-nlifd_iface_coherent_type_str(struct nlif_iface * interface, const char ** type)
-{
-	unsigned short tp;
-	int            ret;
-	const char *   str;
-
-	ret = nlif_iface_coherent_type(interface, &tp);
-	if (ret)
-		return ret;
-
-	str = nlifd_iface_type_str(tp, nlif_iface_kind(interface));
-	if (!str)
-		return -ENOTSUP;
-
-	*type = str;
-
-	return 0;
-}
+/******************************************************************************
+ * XPATH utilities.
+ ******************************************************************************/
 
 static const char *
 nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
@@ -173,9 +125,9 @@ nlifd_iface_name_from_node(const struct lyd_node * node,
 	char *       path;
 	const char * str;
 
-	path = srepo_dat_path(node);
+	path = srplug_dat_path(node);
 	str = nlifd_iface_name_from_xpath(path, name);
-	nlif_free(path);
+	srplug_free(path);
 
 	return str;
 }
@@ -204,50 +156,64 @@ nlifd_iface_from_node(const struct lyd_node *  term,
 }
 
 /******************************************************************************
- ******************************************************************************
- ******************************************************************************
- ******************************************************************************
+ * Netlink interface fields adapters.
  ******************************************************************************/
 
-#if 0
-static sr_error_t
-nlifd_print_change(const struct lyd_node * node,
-                   sr_change_oper_t        oper,
-                   const char *            old,
-                   void *                  data __unused)
+#define NLIFD_IETF_IFACE_YANG_MODULE \
+	"ietf-interfaces"
+
+#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
+	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces"
+
+static const char *
+nlifd_iface_type_str(unsigned short type, const char * kind)
 {
-	srplug_assert(node);
+	switch (type) {
+	case ARPHRD_ETHER:
+		{
+			if (!kind)
+				return "iana-if-type:ethernetCsmacd";
+			else if (!strcmp(kind, "bridge"))
+				return "iana-if-type:bridge";
+			else if (!strcmp(kind, "dummy"))
+				return "iana-if-type:other";
+			break;
+		}
 
-	const char * op;
-
-	switch (oper) {
-	case SR_OP_CREATED:
-		op = "create";
-		break;
-
-	case SR_OP_MODIFIED:
-		op = "modify";
-		break;
-
-	case SR_OP_DELETED:
-		op = "delete";
-		break;
-
-	case SR_OP_MOVED:
-		op = "move";
-		break;
+	case ARPHRD_LOOPBACK:
+		return "iana-if-type:softwareLoopback";
 
 	default:
-		srplug_assert(0);
+		break;
 	}
 
-	srplug_node_debug(node, "change event: op=%s new='%s' old='%s'",
-	                  op,
-	                  srepo_dat_node_as_str(node),
-	                  old);
-	return SR_ERR_OK;
+	/* Unsupported. */
+	return NULL;
 }
-#endif
+
+static int
+nlifd_iface_coherent_type_str(struct nlif_iface * interface, const char ** type)
+{
+	unsigned short tp;
+	int            ret;
+	const char *   str;
+
+	ret = nlif_iface_coherent_type(interface, &tp);
+	if (ret)
+		return ret;
+
+	str = nlifd_iface_type_str(tp, nlif_iface_kind(interface));
+	if (!str)
+		return -ENOTSUP;
+
+	*type = str;
+
+	return 0;
+}
+
+/******************************************************************************
+ * Change subscription events handling.
+ ******************************************************************************/
 
 static sr_error_t
 nlifd_iface_change_enabled(const struct lyd_node * leaf,
@@ -591,6 +557,10 @@ static const struct srplug_sub nlifd_subs[] = {
 	                  SR_SUBSCR_DEFAULT/*| SR_SUBSCR_ENABLED*/),
 };
 
+/******************************************************************************
+ * Interfaces configuration data store handling.
+ ******************************************************************************/
+
 static sr_error_t
 nlifd_iface_new_entry(const struct ly_ctx * context,
                       struct lyd_node *     container,
@@ -606,18 +576,18 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 	const char *      str;
 	int               ret;
 
-	ret = srepo_dat_create_list_keyent(context,
-	                                   container,
-	                                   "interface",
-	                                   "name",
-	                                   nlif_iface_name(interface),
-	                                   &ent);
+	ret = srplug_dat_create_list_keyent(context,
+	                                    container,
+	                                    "interface",
+	                                    "name",
+	                                    nlif_iface_name(interface),
+	                                    &ent);
 	if (ret != SR_ERR_OK)
 		return ret;
 
 	/* Create default nodes as defined by the interface YANG model. */
-	ret = lyd_new_implicit_tree(ent, LYD_IMPLICIT_NO_STATE, NULL);
-	if (ret != SR_ERR_OK)
+	ret = srplug_dat_populate_defaults(ent, LYD_IMPLICIT_NO_STATE, NULL);
+ 	if (ret != SR_ERR_OK)
 		return ret;
 
 	str = nlifd_iface_type_str(nlif_iface_type(interface),
@@ -626,7 +596,7 @@ nlifd_iface_new_entry(const struct ly_ctx * context,
 		srplug_node_info(ent, "unsupported interface type");
 		return SR_ERR_UNSUPPORTED;
 	}
-	ret = srepo_dat_create_leaf(ent, "type", str, NULL);
+	ret = srplug_dat_create_leaf(ent, "type", str, NULL);
 	if (ret != SR_ERR_OK)
 		return ret;
 
@@ -650,10 +620,10 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	struct nlif_iface *            iface;
 	int                            err;
 
-	err = srepo_dat_create_container(context,
-	                                 NULL,
-	                                 NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-	                                 &top);
+	err = srplug_dat_create_container(context,
+	                                  NULL,
+	                                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                                  &top);
 	if (err)
 		return err;
 
@@ -664,7 +634,7 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	}
 
 	/*
-	 * Here, `top' tree ownership is transfered to srepo_replace_dstore()
+	 * Here, `top' tree ownership is transfered to srplug_replace_dstore()
 	 * so that it will be freed once it has returned thanks to a call to
 	 * lyd_free_all().
 	 * This means we are not requested to call lyd_free_tree() on it from
@@ -672,10 +642,12 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
 	 * Also note that any missing implicit (default) nodes will be added to
 	 * the data tree.
 	 */
-	return srepo_replace_dstore(session, NLIFD_IETF_IFACE_YANG_MODULE, top);
+	return srplug_replace_config(session,
+	                             NLIFD_IETF_IFACE_YANG_MODULE,
+	                             top);
 
 free:
-	lyd_free_tree(top);
+	srplug_dat_free_tree(top);
 
 	return err;
 }
@@ -683,6 +655,15 @@ free:
 /******************************************************************************
  * Top-level logic.
  ******************************************************************************/
+
+static struct srplug_feat
+nlifd_arbitrary_names_feat = SRPLUG_FEAT_SETUP("arbitrary-names");
+
+static struct srplug_feat
+nlifd_pre_provisioning_feat = SRPLUG_FEAT_SETUP("pre-provisioning");
+
+static struct srplug_feat
+nlifd_if_mib_feat = SRPLUG_FEAT_SETUP("if-mib");
 
 static int
 nlifd_load(const struct srplug_daemon * daemon,
@@ -699,21 +680,31 @@ nlifd_load(const struct srplug_daemon * daemon,
 	ret = SR_ERR_NOT_FOUND;
 	if (!srplug_find_module(ctx, "iana-if-type"))
 		goto release;
-	if (!srplug_find_module(ctx, "ietf-interfaces"))
+	if (srplug_probe_feature(ctx,
+	                         "ietf-interfaces",
+	                         &nlifd_arbitrary_names_feat) != SR_ERR_OK)
 		goto release;
-	if (!srplug_find_module(ctx, "linux-interfaces"))
+	if (srplug_probe_feature(ctx,
+	                         "ietf-interfaces",
+	                         &nlifd_pre_provisioning_feat) != SR_ERR_OK)
+		goto release;
+	if (srplug_probe_feature(ctx,
+	                         "ietf-interfaces",
+	                         &nlifd_if_mib_feat) != SR_ERR_OK)
+		goto release;
+	if (!srplug_find_module(ctx, "netlink-interfaces"))
 		goto release;
 
 	ret = nlifd_iface_reset_dstore(sess, ctx, repository);
 	if (ret != SR_ERR_OK)
 		goto release;
 
-	srepo_release_context(sess);
+	srplug_release_context(sess);
 
 	return 0;
 
 release:
-	srepo_release_context(sess);
+	srplug_release_context(sess);
 err:
 	srplug_err("cannot load interfaces datastore: %s", sr_strerror(ret));
 
@@ -868,10 +859,10 @@ nlifd_on_iface_get_admin_status(sr_session_ctx_t * session,
 
 	/* TODO: check ctx != NULL */
 	ctx = sr_session_acquire_context(session);
-	ret = srepo_dat_create_leaf(*parent,
-	                            "admin-status", /* path?? */
-	                            nlifd_iface_admstate_str(iface),
-	                            NULL);
+	ret = srplug_dat_create_leaf(*parent,
+	                             "admin-status", /* path?? */
+	                             nlifd_iface_admstate_str(iface),
+	                             NULL);
 	if (ret != SR_ERR_OK)
 		goto release;
 
