@@ -5,7 +5,7 @@
 # Copyright (C) 2026 Grégor Boirie <gregor.boirie@free.fr>
 ################################################################################
 
-config-in  := Config.in
+config-in   := Config.in
 
 subdirs     := lib
 
@@ -19,9 +19,7 @@ sample-deps := lib
 # Source code tags generation
 ################################################################################
 
-tagfiles  := $(shell find $(addprefix $(CURDIR)/,$(subdirs)) \
-                          $(HEADERDIR) \
-                          -type f)
+tagfiles  := $(shell find $(addprefix $(CURDIR)/,$(subdirs)) -type f)
 
 ################################################################################
 # Documentation generation
