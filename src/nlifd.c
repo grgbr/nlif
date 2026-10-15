@@ -250,8 +250,6 @@ nlifd_iface_from_node(const sr_session_ctx_t *  session,
 
 	msg = "invalid interface node path";
 	path = srepo_dat_node_path(node);
-	if (!path)
-		goto err;
 	name = srepo_xpath_key_value(path, "interface", "name", &ctx);
 	if (!name)
 		goto err;
