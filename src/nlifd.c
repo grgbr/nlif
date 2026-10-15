@@ -11,69 +11,6 @@
  * Srepo wrappers.
  ******************************************************************************/
 
-static void __noreturn
-srepo_abort(void)
-{
-	abort();
-}
-
-static int
-srepo_vasprintf(char ** string, const char * format, va_list args)
-{
-	int ret;
-
-	ret = vasprintf(string, format, args);
-	if (ret >= 0)
-		return ret;
-
-	if (errno == ENOMEM)
-		srepo_abort();
-
-	return -errno;
-}
-
-static void *
-srepo_malloc(size_t size)
-{
-	srepo_assert(size);
-
-	void * data;
-
-	data = malloc(size);
-	if (!data)
-		srepo_abort();
-
-	return data;
-}
-
-static inline void
-srepo_free(void * data)
-{
-	free(data);
-}
-
-#define SREPO_PATH_SIZE (4096U)
-
-static ssize_t
-srepo_validate_path(const char * path)
-{
-	srepo_assert(path);
-
-	size_t len;
-
-	len = strnlen(path, SREPO_PATH_SIZE);
-	if (!len || (len >= SREPO_PATH_SIZE))
-		return -EINVAL;
-
-	return len;
-}
-
-static void *
-srepo_alloc_path(void)
-{
-	return srepo_malloc(SREPO_PATH_SIZE);
-}
-
 static sr_error_t
 srepo_ly_error(LY_ERR error)
 {
@@ -115,7 +52,7 @@ srepo_dat_set(sr_session_ctx_t * session,
               uint32_t           flags)
 {
 	srepo_assert(session);
-	srepo_assert(srepo_validate_path(path) > 0);
+	srepo_assert(srepo_xpath_validate(path) > 0);
 	srepo_assert(value);
 	srepo_assert(!(flags & ~(SR_EDIT_DEFAULT |
 	                         SR_EDIT_NON_RECURSIVE |
@@ -144,7 +81,7 @@ srepo_dat_vsetf(sr_session_ctx_t * session,
                 va_list            args)
 {
 	srepo_assert(session);
-	srepo_assert(srepo_validate_path(path) > 0);
+	srepo_assert(srepo_xpath_validate(path) > 0);
 	srepo_assert(!(flags & ~(SR_EDIT_DEFAULT |
 	                         SR_EDIT_NON_RECURSIVE |
 	                         SR_EDIT_STRICT |
@@ -174,7 +111,7 @@ srepo_dat_setf(sr_session_ctx_t * session,
                ...)
 {
 	srepo_assert(session);
-	srepo_assert(srepo_validate_path(path) > 0);
+	srepo_assert(srepo_xpath_validate(path) > 0);
 	srepo_assert(!(flags & ~(SR_EDIT_DEFAULT |
 	                         SR_EDIT_NON_RECURSIVE |
 	                         SR_EDIT_STRICT |
@@ -266,21 +203,15 @@ nlifd_iface_error(int error)
 	(sizeof(NLIFD_IETF_IFACE_YANG_LIST_PATH) - 1)
 
 static char *
-nlifd_iface_create_path_base(void)
+nlifd_iface_create_xpath_base(void)
 {
 	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
-	              "empty ietf-interfaces interface list path length");
-	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_PATH_SIZE,
-	              "ietf-interfaces interface list path length too long");
+	              "empty ietf-interfaces interface list xpath length");
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE,
+	              "ietf-interfaces interface list xpath length too long");
 
-	char * pth;
-
-	pth = srepo_alloc_path();
-	memcpy(pth,
-	       NLIFD_IETF_IFACE_YANG_LIST_PATH,
-	       NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN + 1);
-
-	return pth;
+	return srepo_xpath_create(NLIFD_IETF_IFACE_YANG_LIST_PATH,
+	                          NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
 }
 
 static ssize_t
@@ -289,49 +220,40 @@ nlifd_iface_fill_path_name(char * path, const char * name)
 	srplug_assert(path);
 	srplug_assert(nlif_iface_validate_name(name) > 0);
 
-	int len;
+	ssize_t len;
 
-	len = snprintf(&path[NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN],
-	               SREPO_PATH_SIZE - NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
-	               "[name='%s']",
-	               name);
-	srplug_assert(len);
-	if (len < 0)
-		return -errno;
-
+	len = srepo_xpath_printf(path,
+	                         NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
+	                         "[name='%s']",
+	                         name);
 	/* Interface name is no longer than IFNAMSIZ, i.e. 16 characters... */
-	srplug_assert((NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN + len) <
-	              SREPO_PATH_SIZE);
+	srplug_assert((size_t)len < SREPO_XPATH_SIZE);
 
-	return (ssize_t)(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN + len);
+	return len;
 }
 
 static ssize_t
 nlifd_iface_create_path(char ** path, struct nlif_iface * interface)
 {
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
+	              "empty ietf-interfaces interface list xpath length");
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE,
+	              "ietf-interfaces interface list xpath length too long");
 	srplug_assert(path);
 	nlif_iface_assert(interface);
 
 	ssize_t      ret;
 	const char * name;
-	char *       pth;
 
 	ret = nlif_iface_coherent_name(interface, &name);
 	if (ret)
 		return ret;
 
-	pth = nlifd_iface_create_path_base();
-
-	ret = nlifd_iface_fill_path_name(pth, name);
-	if (ret < 0)
-		goto free;
-
-	*path = pth;
-
-	return ret;
-
-free:
-	srepo_free(pth);
+	ret = srepo_xpath_createf(path,
+	                          NLIFD_IETF_IFACE_YANG_LIST_PATH "[name='%s']",
+	                          name);
+	/* Interface name is no longer than IFNAMSIZ, i.e. 16 characters... */
+	srplug_assert((size_t)ret < SREPO_XPATH_SIZE);
 
 	return ret;
 }
@@ -342,14 +264,18 @@ _nlifd_iface_concat_leaf_path(char *       path,
                               const char * string,
                               size_t       slen)
 {
-	srplug_assert(path);
-	srplug_assert(plen > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
-	srplug_assert(plen < SREPO_PATH_SIZE);
-	srplug_assert(string);
-	srplug_assert(slen);
-	srplug_assert(slen < SREPO_PATH_SIZE);
-	srplug_assert(strlen(string) == slen);
-	srplug_assert((plen + slen) < SREPO_PATH_SIZE);
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
+	              "empty ietf-interfaces interface list xpath length");
+	static_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_XPATH_SIZE,
+	              "ietf-interfaces interface list xpath length too long");
+	srepo_assert(path);
+	srepo_assert(plen > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
+	srepo_assert(plen < SREPO_XPATH_SIZE);
+	srepo_assert(string);
+	srepo_assert(slen);
+	srepo_assert(slen < SREPO_XPATH_SIZE);
+	srepo_assert(strlen(string) == slen);
+	srepo_assert((plen + slen) < SREPO_XPATH_SIZE);
 
 	memcpy(&path[plen], string, slen);
 	path[plen + slen] = '\0';
@@ -375,7 +301,15 @@ nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
 	size_t         len;
 	const char *   msg;
 
-	str = sr_xpath_key_value(xpath, "interface", "name", &ctx);
+	/*
+	 * TODO: remove call to srepo_xpath_validate() since xpath should come
+	 * from returned value of srepo_dat_path().
+	 */
+	if (srepo_xpath_validate(xpath) < 0) {
+		msg = "invalid interface path";
+		goto err;
+	}
+	str = srepo_xpath_key_value(xpath, "interface", "name", &ctx);
 	if (!str) {
 		msg = "invalid interface node path";
 		goto err;
@@ -404,7 +338,7 @@ nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
 	}
 
 err:
-	sr_xpath_recover(&ctx);
+	srepo_xpath_recover(&ctx);
 	srplug_path_debug(xpath, "%s", msg);
 
 	return NULL;
@@ -553,7 +487,7 @@ nlifd_iface_fill_admstate(sr_session_ctx_t *        session,
 	srplug_assert(session);
 	srplug_assert(path);
 	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
-	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(length < SREPO_XPATH_SIZE);
 	nlif_iface_assert(interface);
 
 	nlifd_iface_concat_leaf_path(path, length, "/admin-status");
@@ -574,7 +508,7 @@ nlifd_iface_fill_operstate(sr_session_ctx_t *        session,
 	srplug_assert(session);
 	srplug_assert(path);
 	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
-	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(length < SREPO_XPATH_SIZE);
 	nlif_iface_assert(interface);
 
 	const char * st =
@@ -598,7 +532,7 @@ nlifd_iface_fill_index(sr_session_ctx_t *        session,
 	srplug_assert(session);
 	srplug_assert(path);
 	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
-	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(length < SREPO_XPATH_SIZE);
 	nlif_iface_assert(interface);
 
 	nlifd_iface_concat_leaf_path(path, length, "/if-index");
@@ -620,7 +554,7 @@ nlifd_iface_fill_hwaddr(sr_session_ctx_t *        session,
 	srplug_assert(session);
 	srplug_assert(path);
 	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
-	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(length < SREPO_XPATH_SIZE);
 	nlif_iface_assert(interface);
 
 	char str[NLIF_LINK_HWADDR_STRSZ];
@@ -644,8 +578,8 @@ nlifd_iface_refresh_oper(sr_session_ctx_t *  session,
 	srplug_assert(session);
 	srplug_assert(path);
 	srplug_assert(path[0]);
-	srplug_assert(strnlen(path, SREPO_PATH_SIZE) < SREPO_PATH_SIZE);
-	srplug_assert(strnlen(path, SREPO_PATH_SIZE) >
+	srplug_assert(strnlen(path, SREPO_XPATH_SIZE) < SREPO_XPATH_SIZE);
+	srplug_assert(strnlen(path, SREPO_XPATH_SIZE) >
 	              NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
 	nlif_iface_assert(interface);
 
@@ -1449,7 +1383,7 @@ nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
 
 	srepo_switch_dstore(session, SR_DS_OPERATIONAL);
 
-	path = nlifd_iface_create_path_base();
+	path = nlifd_iface_create_xpath_base();
 	nlif_store_foreach_iface(&daemon->store, hndl, iface) {
 		ssize_t len;
 
