@@ -249,11 +249,12 @@ struct srplug_sub {
 		} \
 	}
 
-extern struct lys_module *
+extern const struct lys_module *
 srplug_find_module(const struct ly_ctx * context, const char * module);
 
 extern sr_error_t
-srplug_acquire_context(sr_session_ctx_t * session, struct ly_ctx * context);
+srplug_acquire_context(sr_session_ctx_t *     session,
+                       const struct ly_ctx ** context);
 
 extern void *
 srplug_malloc(size_t size);

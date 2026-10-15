@@ -55,6 +55,115 @@ nlifd_iface_type_str(const struct nlif_iface * interface)
 	return NULL;
 }
 
+static const char *
+nlifd_iface_name_from_xpath(char * xpath, char name[IFNAMSIZ])
+{
+	nlif_assert(xpath);
+	nlif_assert(name);
+
+	sr_xpath_ctx_t ctx;
+	const char *   str;
+	size_t         len;
+	const char *   msg;
+
+	str = sr_xpath_key_value(xpath, "interface", "name", &ctx);
+	if (!str) {
+		msg = "invalid interface node path";
+		goto err;
+	}
+
+	len = strnlen(str, IFNAMSIZ);
+	if (!len) {
+		msg = "missing interface name";
+		goto err;
+	}
+
+	if (len == IFNAMSIZ) {
+		msg = "interface name too long";
+		goto err;
+	}
+
+	memcpy(name, str, len);
+	name[len] = '\0';
+
+	return name;
+
+err:
+	sr_xpath_recover(&ctx);
+	srplug_path_info(xpath, "%s", msg);
+
+	return NULL;
+}
+
+static struct nlif_iface *
+nlifd_iface_from_xpath(char *                   xpath,
+                       const struct nlif_repo * repository)
+{
+	nlif_assert(xpath);
+	nlif_repo_assert(repository);
+
+	char                      name[IFNAMSIZ];
+	const struct nlif_store * store = nlif_repo_store(repository);
+	struct nlif_iface *       iface;
+
+	if (!nlifd_iface_name_from_xpath(xpath, name)) {
+		srplug_path_notice(xpath, "invalid interface path");
+		return NULL;
+	}
+
+	iface = nlif_store_find_iface_byname(store, name);
+	if (!iface) {
+		srplug_notice("'%s': no such interface", name);
+		return NULL;
+	}
+
+	return iface;
+}
+
+static const char *
+nlifd_iface_name_from_node(const struct lyd_node * node,
+                           char                    name[IFNAMSIZ])
+{
+	nlif_assert(node);
+	nlif_assert(name);
+
+	char *       path;
+	const char * str;
+
+	path = srepo_dat_path(node);
+	str = nlifd_iface_name_from_xpath(path, name);
+	nlif_free(path);
+
+	return str;
+}
+
+static struct nlif_iface *
+nlifd_iface_from_node(const struct lyd_node *  term,
+                      const struct nlif_repo * repository)
+{
+	nlif_assert(term);
+	nlif_assert(term->schema);
+	nlif_assert(term->schema->nodetype & LYD_NODE_TERM);
+	nlif_repo_assert(repository);
+
+	char                      name[IFNAMSIZ];
+	const struct nlif_store * store = nlif_repo_store(repository);
+	struct nlif_iface *       iface;
+
+	if (!nlifd_iface_name_from_node(term, name)) {
+		srplug_node_notice(term, "invalid interface path");
+		return NULL;
+	}
+
+	iface = nlif_store_find_iface_byname(store, name);
+	if (!iface) {
+		srplug_notice("'%s': no such interface", name);
+		return NULL;
+	}
+
+	return iface;
+}
+
 static sr_error_t
 nlifd_iface_new_entry(const struct ly_ctx *     context,
                       struct lyd_node *         container,
@@ -96,79 +205,6 @@ nlifd_iface_new_entry(const struct ly_ctx *     context,
 		*entry = ent;
 
 	return SR_ERR_OK;
-}
-
-static const char *
-nlifd_iface_name_from_node(const struct lyd_node * node,
-                           char                    name[IFNAMSIZ])
-{
-	nlif_assert(node);
-	nlif_assert(!strcmp(LYD_NAME(node), "interface"));
-	nlif_assert(name);
-
-	char *         path;
-	sr_xpath_ctx_t ctx;
-	char *         str;
-	size_t         len;
-
-	path = srepo_dat_path(node);
-	nlif_assert(path);
-
-	str = sr_xpath_key_value(path, "interface", "name", &ctx);
-	if (!str) {
-		srplug_path_info(path, "invalid interface node path");
-		goto free;
-	}
-
-	len = strnlen(str, IFNAMSIZ);
-	if (!len) {
-		srplug_path_info(path, "missing interface name");
-		goto free;
-	}
-
-	if (len == IFNAMSIZ) {
-		srplug_path_info(path, "interface name too long");
-		goto free;
-	}
-
-	memcpy(name, str, len);
-	name[len] = '\0';
-
-	nlif_free(path);
-
-	return name;
-
-free:
-	nlif_free(path);
-
-	return NULL;
-}
-
-static struct nlif_iface *
-nlifd_iface_from_term(const struct lyd_node *  term,
-                      const struct nlif_repo * repository)
-{
-	nlif_assert(term);
-	nlif_assert(term->schema);
-	nlif_assert(term->schema->nodetype & LYD_NODE_TERM);
-
-	const struct lyd_node *   entry = lyd_parent(term);
-	char                      name[IFNAMSIZ];
-	const struct nlif_store * store = nlif_repo_store(repository);
-	struct nlif_iface *       iface;
-
-	if (!nlifd_iface_name_from_node(entry, name)) {
-		srplug_node_info(entry, "invalid interface path");
-		return NULL;
-	}
-
-	iface = nlif_store_find_iface_byname(store, name);
-	if (!iface) {
-		srplug_info("'%s': no such interface", name);
-		return NULL;
-	}
-
-	return iface;
 }
 
 #if 0
@@ -267,23 +303,30 @@ nlifd_on_iface_type_change(sr_session_ctx_t * session __unused,
 }
 
 static sr_error_t
-nlifd_iface_change_enabled(const struct lyd_node * node,
+nlifd_iface_change_enabled(struct nlif_iface *     interface,
                            sr_change_oper_t        oper,
-                           struct nlif_iface *     interface)
+                           const struct lyd_node * node,
+                           const char *            old)
 {
-	nlif_assert(node);
 	nlif_iface_assert(interface);
+	nlif_assert(node);
 
 	bool val;
 	int  ret;
 
 	switch (oper) {
 	case SR_OP_CREATED:
+		nlif_assert(!old);
+		val = srepo_dat_node_as_bool(node);
+		break;
+
 	case SR_OP_MODIFIED:
+		nlif_assert(old);
 		val = srepo_dat_node_as_bool(node);
 		break;
 
 	case SR_OP_DELETED:
+		nlif_assert(!old);
 		if (srepo_dat_node_dflt_as_bool(node, &val) != SR_ERR_OK)
 			val = false;
 		break;
@@ -310,9 +353,10 @@ nlifd_iface_change_enabled(const struct lyd_node * node,
 	return SR_ERR_CALLBACK_FAILED;
 }
 
-typedef sr_error_t nlifd_iface_handle_change_fn(const struct lyd_node *,
+typedef sr_error_t nlifd_iface_handle_change_fn(struct nlif_iface *,
                                                 sr_change_oper_t,
-                                                struct nlif_iface *);
+                                                const struct lyd_node *,
+                                                const char *);
 
 static sr_error_t
 nlifd_iface_handle_changes(sr_session_ctx_t *             session,
@@ -328,6 +372,7 @@ nlifd_iface_handle_changes(sr_session_ctx_t *             session,
 	sr_change_iter_t *      iter;
 	sr_change_oper_t        oper;
 	const struct lyd_node * node;
+	const char *            old;
 	sr_error_t              ret;
 
 	ret = sr_get_changes_iter(session, xpath, &iter);
@@ -344,19 +389,19 @@ nlifd_iface_handle_changes(sr_session_ctx_t *             session,
 	                              iter,
 	                              &oper,
 	                              &node,
-	                              NULL,
+	                              &old,
 	                              NULL,
 	                              NULL);
 	while (ret == SR_ERR_OK) {
 		struct nlif_iface * iface;
 
-		iface = nlifd_iface_from_term(node, repository);
+		iface = nlifd_iface_from_node(node, repository);
 		if (!iface) {
 			ret = SR_ERR_NOT_FOUND;
 			goto err;
 		}
 
-		ret = handle(node, oper, iface);
+		ret = handle(iface, oper, node, old);
 		if (ret != SR_ERR_OK)
 			goto err;
 
@@ -364,7 +409,7 @@ nlifd_iface_handle_changes(sr_session_ctx_t *             session,
 		                              iter,
 		                              &oper,
 		                              &node,
-		                              NULL,
+		                              &old,
 		                              NULL,
 		                              NULL);
 	}
@@ -416,9 +461,9 @@ nlifd_iface_reset_dstore(sr_session_ctx_t *       session,
                          const struct ly_ctx *    context,
                          const struct nlif_repo * repository)
 {
-	srplug_assert(session);
-	srplug_assert(context);
-	srplug_assert(repository);
+	nlif_assert(session);
+	nlif_assert(context);
+	nlif_repo_assert(repository);
 
 	struct lyd_node *              top;
 	const struct nlif_store_hndl * hndl;
@@ -472,40 +517,6 @@ static const struct srplug_sub nlifd_subs[] = {
  * Top-level logic.
  ******************************************************************************/
 
-static const struct lys_module *
-nlifd_find_module(const struct ly_ctx * context, const char * module)
-{
-	srplug_assert(context);
-	srplug_assert(module);
-
-	const struct lys_module * mod;
-
-	mod = srepo_sch_find_module(context, module);
-	if (mod)
-		return mod;
-
-	srplug_info("'%s': missing YANG module", module);
-
-	return NULL;
-}
-
-static sr_error_t
-nlifd_acquire_context(sr_session_ctx_t *     session,
-                      const struct ly_ctx ** context)
-{
-	srplug_assert(context);
-
-	sr_error_t ret;
-
-	ret = srepo_acquire_context(session, context);
-	if (ret == SR_ERR_OK)
-		return SR_ERR_OK;
-
-	srplug_info("cannot acquire context: %s", sr_strerror(ret));
-
-	return ret;
-}
-
 static int
 nlifd_load(const struct srplug_daemon * daemon,
            const struct nlif_repo *     repository)
@@ -514,14 +525,14 @@ nlifd_load(const struct srplug_daemon * daemon,
 	const struct ly_ctx * ctx;
 	int                   ret;
 
-	ret = nlifd_acquire_context(sess, &ctx);
+	ret = srplug_acquire_context(sess, &ctx);
 	if (ret != SR_ERR_OK)
 		goto err;
 
 	ret = SR_ERR_NOT_FOUND;
-	if (!nlifd_find_module(ctx, "ietf-interfaces"))
+	if (!srplug_find_module(ctx, "ietf-interfaces"))
 		goto release;
-	if (!nlifd_find_module(ctx, "iana-if-type"))
+	if (!srplug_find_module(ctx, "iana-if-type"))
 		goto release;
 
 	ret = nlifd_iface_reset_dstore(sess, ctx, repository);
