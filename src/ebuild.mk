@@ -27,7 +27,7 @@ common-ldflags      := $(filter-out -DNDEBUG,$(common-ldflags))
 endif # ($(filter y,$(CONFIG_NLIF_ASSERT)),)
 
 arlibs              := libsrplug.a
-libsrplug.a-objs    := static/srplug.o
+libsrplug.a-objs    := static/srplug.o static/lyd.o
 libsrplug.a-cflags  := $(common-cflags)
 libsrplug.a-pkgconf := libelog libetux_timer_list libstroll
 
