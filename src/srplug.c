@@ -1181,13 +1181,25 @@ srplug_clear_subs(sr_subscription_ctx_t * subscriptions)
 {
 	int err;
 
-#warning REVIEW ME: What should we do here in case of failure ?! May this really happen ?!
-
-	/* Free all subscribtions (worker->ctx may be NULL here). */
+	/*
+	 * Free all subscribtions (worker->ctx may be NULL here).
+	 *
+	 * Warning:
+	 * Although all sysrepo code samples don't check the code returned by
+	 * calls to sr_unsubscribe(), there might be an error here (because of
+	 * locking timeouts and other things).
+	 * What should we do here ? Can this really happen ?
+	 * (Do not forget our use case is single threaded and relies upon an
+	 * asynchronous event poller logic).
+	 */
 	err = sr_unsubscribe(subscriptions);
-	if (err != SR_ERR_OK)
+	if (err != SR_ERR_OK) {
+		if (err == SR_ERR_NO_MEMORY)
+			abort();
+
 		srplug_daemon_warn("cannot clear subscriptions: %s",
 		                   sr_strerror(err));
+	}
 }
 
 #define srplug_assert_change_sub(_sub) \
@@ -1202,6 +1214,7 @@ static int
 srplug_register_change_sub(sr_subscription_ctx_t **         subscriptions,
                            sr_session_ctx_t *               session,
                            const struct srplug_change_sub * subscription,
+                           void *                           data,
                            const struct upoll *             poller)
 {
 	srplug_assert(subscriptions);
@@ -1216,7 +1229,7 @@ srplug_register_change_sub(sr_subscription_ctx_t **         subscriptions,
 		subscription->module,
 		subscription->xpath,
 		subscription->on_change,
-		subscription->data,
+		data,
 		subscription->priority,
 		subscription->options | SR_SUBSCR_NO_THREAD,
 		subscriptions);
@@ -1246,6 +1259,7 @@ static int
 srplug_register_oper_sub(sr_subscription_ctx_t **       subscriptions,
                          sr_session_ctx_t *             session,
                          const struct srplug_oper_sub * subscription,
+                         void *                         data,
                          const struct upoll *           poller)
 {
 	srplug_assert(subscriptions);
@@ -1260,7 +1274,7 @@ srplug_register_oper_sub(sr_subscription_ctx_t **       subscriptions,
 		subscription->module,
 		subscription->xpath,
 		subscription->on_get,
-		subscription->data,
+		data,
 		subscription->options | SR_SUBSCR_NO_THREAD,
 		subscriptions);
 	if (err == SR_ERR_OK)
@@ -1288,6 +1302,7 @@ static int
 srplug_register_rpc_sub(sr_subscription_ctx_t **      subscriptions,
                         sr_session_ctx_t *            session,
                         const struct srplug_rpc_sub * subscription,
+                        void *                        data,
                         const struct upoll *          poller)
 {
 	srplug_assert(subscriptions);
@@ -1301,7 +1316,7 @@ srplug_register_rpc_sub(sr_subscription_ctx_t **      subscriptions,
 		session,
 		subscription->xpath,
 		subscription->on_rpc,
-		subscription->data,
+		data,
 		subscription->priority,
 		subscription->options | SR_SUBSCR_NO_THREAD,
 		subscriptions);
@@ -1421,7 +1436,8 @@ srplug_daemon_disable_subs(struct srplug_daemon * daemon)
 
 int
 srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
-                               const struct srplug_change_sub * subscription)
+                               const struct srplug_change_sub * subscription,
+                               void *                           data)
 {
 	srplug_daemon_assert(daemon);
 	srplug_assert_change_sub(subscription);
@@ -1432,6 +1448,7 @@ srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
 	err = srplug_register_change_sub(&daemon->sub_ctx,
 	                                 daemon->sess,
 	                                 subscription,
+	                                 data,
 	                                 &daemon->poll);
 	if (err)
 		return err;
@@ -1442,7 +1459,8 @@ srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
 
 int
 srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
-                             const struct srplug_oper_sub * subscription)
+                             const struct srplug_oper_sub * subscription,
+                             void *                         data)
 {
 	srplug_daemon_assert(daemon);
 	srplug_assert_oper_sub(subscription);
@@ -1453,6 +1471,7 @@ srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
 	err = srplug_register_oper_sub(&daemon->sub_ctx,
 	                               daemon->sess,
 	                               subscription,
+	                               data,
 	                               &daemon->poll);
 	if (err)
 		return err;
@@ -1463,7 +1482,8 @@ srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
 
 int
 srplug_daemon_rpc_subscribe(struct srplug_daemon *        daemon,
-                            const struct srplug_rpc_sub * subscription)
+                            const struct srplug_rpc_sub * subscription,
+                            void *                        data)
 {
 	srplug_daemon_assert(daemon);
 	srplug_assert_rpc_sub(subscription);
@@ -1474,9 +1494,103 @@ srplug_daemon_rpc_subscribe(struct srplug_daemon *        daemon,
 	err = srplug_register_rpc_sub(&daemon->sub_ctx,
 	                              daemon->sess,
 	                              subscription,
+	                              data,
 	                              &daemon->poll);
 	if (err)
 		return err;
+
+	/* Enable asynchronous processing of subscriptions. */
+	return srplug_daemon_enable_subs(daemon);
+}
+
+int
+srplug_daemon_subscribe(struct srplug_daemon *    daemon,
+                        const struct srplug_sub * subscription,
+                        void *                    data)
+{
+	srplug_daemon_assert(daemon);
+	srplug_assert(subscription);
+	srplug_assert(subscription->kind >= 0);
+	srplug_assert(subscription->kind < SRPLUG_SUB_KIND_NR);
+
+	switch (subscription->kind) {
+	case SRPLUG_CHANGE_SUB_KIND:
+		return srplug_daemon_change_subscribe(daemon,
+		                                      &subscription->change,
+		                                      data);
+
+	case SRPLUG_OPER_SUB_KIND:
+		return srplug_daemon_oper_subscribe(daemon,
+		                                    &subscription->oper,
+		                                    data);
+
+	case SRPLUG_RPC_SUB_KIND:
+		return srplug_daemon_rpc_subscribe(daemon,
+		                                   &subscription->rpc,
+		                                   data);
+
+	default:
+		srplug_assert(0);
+	}
+
+	unreachable();
+}
+
+int
+srplug_daemon_subscribe_all(struct srplug_daemon *    daemon,
+                            const struct srplug_sub * subscriptions,
+                            unsigned int              nr,
+                            void *                    data)
+{
+	srplug_daemon_assert(daemon);
+	srplug_assert(subscriptions);
+	srplug_assert(nr);
+
+	unsigned int             s;
+	sr_subscription_ctx_t ** ctx = &daemon->sub_ctx;
+	sr_session_ctx_t *       sess = daemon->sess;
+	struct upoll *           poll = &daemon->poll;
+
+	for (s = 0; s < nr; s++) {
+		srplug_assert(subscriptions[s].kind >= 0);
+		srplug_assert(subscriptions[s].kind < SRPLUG_SUB_KIND_NR);
+
+		const struct srplug_sub * sub = &subscriptions[s];
+		int                       err;
+
+		switch (sub->kind) {
+		case SRPLUG_CHANGE_SUB_KIND:
+			err = srplug_register_change_sub(ctx,
+			                                 sess,
+			                                 &sub->change,
+			                                 data,
+			                                 poll);
+			break;
+
+		case SRPLUG_OPER_SUB_KIND:
+			err = srplug_register_oper_sub(ctx,
+			                               sess,
+			                               &sub->oper,
+			                               data,
+			                               poll);
+			break;
+
+		case SRPLUG_RPC_SUB_KIND:
+			err = srplug_register_rpc_sub(ctx,
+			                              sess,
+			                              &sub->rpc,
+			                              data,
+			                              poll);
+			break;
+
+		default:
+			srplug_assert(0);
+			unreachable();
+		}
+
+		if (err)
+			return err;
+	}
 
 	/* Enable asynchronous processing of subscriptions. */
 	return srplug_daemon_enable_subs(daemon);
@@ -1492,7 +1606,7 @@ srplug_daemon_poll(const struct srplug_daemon * daemon)
 	do {
 		ret = upoll_process(&daemon->poll, etux_timer_issue_msec());
 		etux_timer_run();
-	} while (!ret || (ret == -ETIME));
+	} while (!ret || (ret == -ETIME) || (ret == -EINTR));
 
 	return (ret == -ESHUTDOWN) ? 0 : ret;
 }

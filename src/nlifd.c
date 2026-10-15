@@ -6,6 +6,11 @@
  * Nlif sysrepo specific implementation.
  ******************************************************************************/
 
+#define NLIFD_IETF_IFACE_YANG_MODULE \
+	"ietf-interfaces"
+#define NLIFD_IETF_IFACE_YANG_ROOT_PATH \
+	"/" NLIFD_IETF_IFACE_YANG_MODULE ":interfaces",
+
 static int
 on_change(sr_session_ctx_t * session,
           uint32_t           sub_id __unused,
@@ -52,10 +57,22 @@ static const struct srplug_change_sub nlifd_change_sub = {
 	.module    = "oven",
 	.xpath     = NULL,
 	.on_change = on_change,
-	.data      = NULL,
 	.priority  = 0,
 	.options   = SR_SUBSCR_ENABLED | SR_SUBSCR_DONE_ONLY
 };
+
+#if 0
+static const struct srplug_sub nlifd_iface_sub = {
+	.kind   = SRPLUG_CHANGE_SUB_KIND,
+	.change = {
+		.module    = NLIFD_IETF_IFACE_YANG_MODULE,
+		.xpath     = NLIFD_IETF_IFACE_YANG_ROOT_PATH "/interface",
+		.on_change = nlifd_on_iface_change,
+		.priority  = 0,
+		.options   = SR_SUBSCR_ENABLED | SR_SUBSCR_DONE_ONLY
+	}
+};
+#endif
 
 /******************************************************************************
  * Main entry point.
@@ -117,7 +134,7 @@ main(int argc, char * argv[])
 	if (ret)
 		goto close_dmn;
 
-	ret = srplug_daemon_change_subscribe(&dmn, &nlifd_change_sub);
+	ret = srplug_daemon_change_subscribe(&dmn, &nlifd_change_sub, NULL);
 	if (ret)
 		goto close_repo;
 

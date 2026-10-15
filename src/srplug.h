@@ -203,38 +203,65 @@ struct srplug_change_sub {
 	const char *        module;
 	const char *        xpath;
 	sr_module_change_cb on_change;
-	void *              data;
 	uint32_t            priority;
 	uint32_t            options;
 };
 
 extern int
 srplug_daemon_change_subscribe(struct srplug_daemon *           daemon,
-                               const struct srplug_change_sub * subscription);
+                               const struct srplug_change_sub * subscription,
+                               void *                           data);
 
 struct srplug_oper_sub {
 	const char *         module;
 	const char *         xpath;
 	sr_oper_get_items_cb on_get;
-	void *               data;
 	uint32_t             options;
 };
 
 extern int
 srplug_daemon_oper_subscribe(struct srplug_daemon *         daemon,
-                             const struct srplug_oper_sub * subscription);
+                             const struct srplug_oper_sub * subscription,
+                             void *                         data);
 
 struct srplug_rpc_sub {
 	const char * xpath;
 	sr_rpc_cb    on_rpc;
-	void *       data;
 	uint32_t     priority;
 	uint32_t     options;
 };
 
 extern int
 srplug_daemon_rpc_subscribe(struct srplug_daemon *        daemon,
-                            const struct srplug_rpc_sub * subscription);
+                            const struct srplug_rpc_sub * subscription,
+                            void *                        data);
+
+enum srplug_sub_kind {
+	SRPLUG_CHANGE_SUB_KIND = 0,
+	SRPLUG_OPER_SUB_KIND,
+	SRPLUG_RPC_SUB_KIND,
+	SRPLUG_SUB_KIND_NR
+};
+
+struct srplug_sub {
+	enum srplug_sub_kind             kind;
+	union {
+		struct srplug_change_sub change;
+		struct srplug_oper_sub   oper;
+		struct srplug_rpc_sub    rpc;
+	};
+};
+
+extern int
+srplug_daemon_subscribe(struct srplug_daemon *    daemon,
+                        const struct srplug_sub * subscription,
+                        void *                    data);
+
+extern int
+srplug_daemon_subscribe_all(struct srplug_daemon *    daemon,
+                            const struct srplug_sub * subscriptions,
+                            unsigned int              nr,
+                            void *                    data);
 
 extern int
 srplug_daemon_poll(const struct srplug_daemon * daemon);
