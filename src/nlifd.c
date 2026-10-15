@@ -193,65 +193,6 @@ release:
 }
 #endif
 
-static int
-nlifd_on_iface_root_change(sr_session_ctx_t * session,
-                           uint32_t           sub_id __unused,
-                           const char *       module __unused,
-                           const char *       xpath __unused,
-                           sr_event_t         event,
-                           uint32_t           request_id __unused,
-                           void *             repository __unused)
-{
-	nlif_assert(session);
-	nlif_assert(repository);
-	nlif_assert(!strcmp(module, NLIFD_IETF_IFACE_YANG_MODULE));
-	nlif_assert(!strcmp(xpath, NLIFD_IETF_IFACE_YANG_ROOT_PATH));
-
-	switch (event) {
-	case SR_EV_ENABLED:
-		{
-			const struct ly_ctx * ctx;
-			int                   ret;
-
-			ret = srplug_lyd_acquire_context(session, &ctx);
-			if (ret != SR_ERR_OK)
-				return ret;
-
-			ret = srplug_lyd_create_container(
-				ctx,
-				NULL,
-				NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-				NULL);
-
-			srplug_lyd_release_context(session);
-
-			return ret;
-		}
-
-	case SR_EV_DONE:
-		return SR_ERR_OK;
-
-	case SR_EV_ABORT:
-	case SR_EV_CHANGE:
-	case SR_EV_UPDATE:
-	case SR_EV_RPC:
-	default:
-		nlif_assert(0);
-		return SR_ERR_INTERNAL;
-	}
-}
-
-static const struct srplug_sub nlifd_iface_root_change_sub = {
-	.kind   = SRPLUG_CHANGE_SUB_KIND,
-	.change = {
-		.module    = NLIFD_IETF_IFACE_YANG_MODULE,
-		.xpath     = NLIFD_IETF_IFACE_YANG_ROOT_PATH,
-		.on_change = nlifd_on_iface_root_change,
-		.priority  = 0,
-		.options   = SR_SUBSCR_ENABLED
-	}
-};
-
 #if 0
 static int
 nlifd_on_iface_change(sr_session_ctx_t * session __unused,
@@ -354,6 +295,62 @@ static const struct srplug_sub nlifd_iface_admin_status_sub = {
 };
 #endif
 
+static int
+nlifd_on_iface_root_change(sr_session_ctx_t * session,
+                           uint32_t           sub_id __unused,
+                           const char *       module __unused,
+                           const char *       xpath __unused,
+                           sr_event_t         event,
+                           uint32_t           request_id __unused,
+                           void *             repository __unused)
+{
+	nlif_assert(session);
+	nlif_assert(!strcmp(module, NLIFD_IETF_IFACE_YANG_MODULE));
+	nlif_assert(!strcmp(xpath, NLIFD_IETF_IFACE_YANG_ROOT_PATH));
+	nlif_assert(repository);
+
+	switch (event) {
+	case SR_EV_ENABLED:
+		{
+			const struct ly_ctx * ctx;
+			int                   ret;
+
+			ret = srplug_lyd_acquire_context(session, &ctx);
+			if (ret != SR_ERR_OK)
+				return ret;
+
+			ret = srplug_lyd_create_container(
+				ctx,
+				NULL,
+				NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+				NULL);
+
+			srplug_lyd_release_context(session);
+
+			return ret;
+		}
+
+	case SR_EV_DONE:
+		return SR_ERR_OK;
+
+	case SR_EV_ABORT:
+	case SR_EV_CHANGE:
+	case SR_EV_UPDATE:
+	case SR_EV_RPC:
+	default:
+		nlif_assert(0);
+		return SR_ERR_INTERNAL;
+	}
+}
+
+static const struct srplug_sub nlifd_subs[] = {
+	SRPLUG_CHANGE_SUB(NLIFD_IETF_IFACE_YANG_MODULE,
+	                  NLIFD_IETF_IFACE_YANG_ROOT_PATH,
+	                  nlifd_on_iface_root_change,
+	                  0,
+	                  SR_SUBSCR_ENABLED)
+};
+
 /******************************************************************************
  * Main entry point.
  ******************************************************************************/
@@ -414,25 +411,10 @@ main(int argc, char * argv[])
 	if (ret)
 		goto close_dmn;
 
-#if 0
-	ret = srplug_daemon_change_subscribe(&dmn, &nlifd_change_sub, NULL);
-	if (ret)
-		goto close_repo;
-	ret = srplug_daemon_subscribe(&dmn,
-	                              &nlifd_iface_change_sub,
-	                              &repo);
-	if (ret)
-		goto close_repo;
-
-	ret = srplug_daemon_subscribe(&dmn,
-	                              &nlifd_iface_admin_status_sub,
-	                              &repo);
-	if (ret)
-		goto close_repo;
-#endif
-	ret = srplug_daemon_subscribe(&dmn,
-	                              &nlifd_iface_root_change_sub,
-	                              &repo);
+	ret = srplug_daemon_subscribe_all(&dmn,
+	                                  nlifd_subs,
+	                                  stroll_array_nr(nlifd_subs),
+	                                  &repo);
 	if (ret)
 		goto close_repo;
 

@@ -114,45 +114,51 @@ srplug_daemon_cmdln_parse(int                                argc,
 extern void
 srplug_daemon_log(enum elog_severity severity, const char * format, ...);
 
-#define srplug_err(_format, ...) \
-	srplug_daemon_log(ELOG_ERR_SEVERITY, _format ".", ## __VA_ARGS__)
+#define srplug_log(_svrt, _fmt, ...) \
+	srplug_daemon_log(_svrt, _fmt ".", ## __VA_ARGS__)
 
-#define srplug_warn(_format, ...) \
-	srplug_daemon_log(ELOG_WARNING_SEVERITY, _format ".", ## __VA_ARGS__)
+#define srplug_err(_fmt, ...) \
+	srplug_log(ELOG_ERR_SEVERITY, _fmt, ## __VA_ARGS__)
 
-#define srplug_notice(_format, ...) \
-	srplug_daemon_log(ELOG_NOTICE_SEVERITY, _format ".", ## __VA_ARGS__)
+#define srplug_warn(_fmt, ...) \
+	srplug_log(ELOG_WARNING_SEVERITY, _fmt, ## __VA_ARGS__)
 
-#define srplug_info(_format, ...) \
-	srplug_daemon_log(ELOG_INFO_SEVERITY, _format ".", ## __VA_ARGS__)
+#define srplug_notice(_fmt, ...) \
+	srplug_log(ELOG_NOTICE_SEVERITY, _fmt, ## __VA_ARGS__)
+
+#define srplug_info(_fmt, ...) \
+	srplug_log(ELOG_INFO_SEVERITY, _fmt, ## __VA_ARGS__)
 
 #if defined(CONFIG_SRPLUG_DEBUG)
 
-#define srplug_debug(_format, ...) \
-	srplug_daemon_log(ELOG_DEBUG_SEVERITY, _format ".", ## __VA_ARGS__)
+#define srplug_debug(_fmt, ...) \
+	srplug_log(ELOG_DEBUG_SEVERITY, _fmt, ## __VA_ARGS__)
 
 #else  /* !defined(CONFIG_SRPLUG_DEBUG) */
 
-#define srplug_debug(_format, ...) \
+#define srplug_debug(_fmt, ...) \
 	do { } while (0)
 
 #endif /* defined(CONFIG_SRPLUG_DEBUG) */
 
 #else  /* !defined(CONFIG_SRPLUG_LOG) */
 
-#define srplug_err(_format, ...) \
+#define srplug_log(_svrt, _fmt, ...) \
 	do { } while (0)
 
-#define srplug_warn(_format, ...) \
+#define srplug_err(_fmt, ...) \
 	do { } while (0)
 
-#define srplug_info(_format, ...) \
+#define srplug_warn(_fmt, ...) \
 	do { } while (0)
 
-#define srplug_notice(_format, ...) \
+#define srplug_info(_fmt, ...) \
 	do { } while (0)
 
-#define srplug_debug(_format, ...) \
+#define srplug_notice(_fmt, ...) \
+	do { } while (0)
+
+#define srplug_debug(_fmt, ...) \
 	do { } while (0)
 
 #endif /* defined(CONFIG_SRPLUG_LOG) */
@@ -257,6 +263,40 @@ struct srplug_sub {
 		struct srplug_rpc_sub    rpc;
 	};
 };
+
+#define SRPLUG_CHANGE_SUB(_mod, _xpath, _on_change, _prio, _opts) \
+	{ \
+		.kind   = SRPLUG_CHANGE_SUB_KIND, \
+		.change = { \
+			.module    = _mod, \
+			.xpath     = _xpath, \
+			.on_change = _on_change, \
+			.priority  = _prio, \
+			.options   = _opts \
+		} \
+	}
+
+#define SRPLUG_OPER_SUB(_mod, _xpath, _on_get, _prio, _opts) \
+	{ \
+		.kind = SRPLUG_OPER_SUB_KIND, \
+		.oper = { \
+			.module  = _mod, \
+			.xpath   = _xpath, \
+			.on_get  = _on_get, \
+			.options = _opts \
+		} \
+	}
+
+#define SRPLUG_RPC_SUB(_mod, _xpath, _on_change, _prio, _opts) \
+	{ \
+		.kind = SRPLUG_RPC_SUB_KIND, \
+		.rpc  = { \
+			.xpath     = _xpath, \
+			.on_rpc    = _on_rpc, \
+			.priority  = _prio, \
+			.options   = _opts \
+		} \
+	}
 
 extern int
 srplug_daemon_subscribe(struct srplug_daemon *    daemon,
