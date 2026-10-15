@@ -30,7 +30,6 @@
 extern void
 nlif_log(enum elog_severity severity, const char * format, ...);
 
-
 #define nlif_err(_format, ...) \
 	nlif_log(ELOG_ERR_SEVERITY, _format, ## __VA_ARGS__)
 
@@ -42,12 +41,12 @@ nlif_log(enum elog_severity severity, const char * format, ...);
 
 #if defined(CONFIG_NLIF_DEBUG)
 
-#define nlif_dbg(_format, ...) \
+#define nlif_debug(_format, ...) \
 	nlif_log(ELOG_DEBUG_SEVERITY, _format, ## __VA_ARGS__)
 
 #else  /* !defined(CONFIG_NLIF_DEBUG) */
 
-#define nlif_dbg(_format, ...)
+#define nlif_debug(_format, ...)
 
 #endif /* defined(CONFIG_NLIF_DEBUG) */
 
@@ -66,7 +65,7 @@ nlif_log(enum elog_severity severity __unused,
 #define nlif_err(_format, ...)
 #define nlif_warn(_format, ...)
 #define nlif_info(_format, ...)
-#define nlif_dbg(_format, ...)
+#define nlif_debug(_format, ...)
 
 static inline void
 nlif_log_setup(struct elog * logger __unused)

@@ -1,27 +1,124 @@
-struct nlif_srepo {
-	sr_session_ctx_t *      sess;
-	struct nlif_store       store;
-	struct nlifd_notif_work notif;
-	struct nlif_gate        gate;
-	struct upoll            poll;
+#include "store.h"
+#include <utils/poll.h>
+
+struct nlif_srepo_notif_work {
+	struct upoll_worker base;
+	struct nlif_gate *  gate;
 };
 
-static int
-nlif_srepo_process(const struct nlif_srepo * repo)
+#define nlif_srepo_assert_notif_work(_work) \
+	nlif_assert(_work); \
+	nlif_assert((_work)->base.dispatch); \
+	nlif_gate_assert((_work)->gate)
+
+#define NLIF_SREPO_INIT_NOTIF_WORK(_work, _gate) \
+	{ \
+		.base.dispatch = nlif_srepo_dispatch_notif, \
+		.gate          = _gate, \
+	}
+
+struct nlif_srepo {
+	sr_session_ctx_t *           sess;
+	struct nlif_store            store;
+	struct nlif_srepo_notif_work notif;
+	struct nlif_gate             gate;
+};
+
+static
+int
+nlif_srepo_dispatch_notif(struct upoll_worker * worker,
+                          uint32_t              state __unused,
+                          const struct upoll *  poller __unused)
 {
-	return upoll_process(&repo->poll, -1);
+	nlif_assert(worker);
+	nlif_assert(state);
+	nlif_assert(!(state & EPOLLOUT));
+	nlif_assert(!(state & EPOLLRDHUP));
+	nlif_assert(!(state & EPOLLPRI));
+	nlif_assert(!(state & EPOLLHUP));
+	nlif_assert(!(state & EPOLLERR));
+	nlif_assert(state & EPOLLIN);
+	nlif_assert(poller);
+
+	struct nlif_srepo_notif_work * notif = containerof(worker,
+	                                                   typeof(*notif),
+	                                                   base);
+
+	nlif_srepo_assert_notif_work(notif);
+	nlif_gate_notify(notif->gate);
+
+	return 0;
 }
 
 static int
-nlif_srepo_open(struct nlif_srepo * repo, sr_session_ctx_t * session)
+nlif_srepo_enable_notif(struct nlif_srepo_notif_work * worker,
+                        struct nlif_store *            store,
+                        const struct upoll *           poller)
 {
-	int err;
+	nlif_srepo_assert_notif_work(worker);
+	nlif_store_assert(store);
+	nlif_assert(poller);
 
-	err = upoll_open(&repo->poll, 2U);
-	if (err) {
-		nlif_err("cannot open poller: %s.", strerror(-err));
-		return err;
+	struct nlif_gate * gate = worker->gate;
+	int                ret;
+	const char *       msg __unused;
+
+	ret = nlif_store_enable_notif(store, gate);
+	if (ret) {
+		msg = "cannot enable store notification";
+		goto err;
 	}
+
+	ret = upoll_register(poller,
+	                     nlif_gate_fd(gate),
+	                     EPOLLIN,
+	                     &worker->base);
+	if (ret) {
+		msg = "cannot enable polling";
+		goto disable;
+	}
+
+	nlif_debug("notification worker enabled.");
+
+	return 0;
+
+disable:
+	nlif_store_disable_notif(store, gate);
+err:
+	nlif_err("cannot enable notification worker: %s: %s.",
+	         msg,
+	         strerror(-ret));
+
+	return ret;
+}
+
+static void
+nlif_srepo_disable_notif(struct nlif_srepo_notif_work * worker,
+                         struct nlif_store *            store,
+                         const struct upoll *           poller)
+{
+	nlif_srepo_assert_notif_work(worker);
+	nlif_store_assert(store);
+	nlif_assert(poller);
+
+	struct nlif_gate * gate = worker->gate;
+
+	upoll_unregister(poller, nlif_gate_fd(gate));
+	nlif_store_disable_notif(store, gate);
+
+	nlif_debug("notification worker disabled.");
+}
+
+static int
+nlif_srepo_open(struct nlif_srepo *  repo,
+                sr_session_ctx_t *   session,
+                const struct upoll * poller)
+{
+	nlif_assert(repo);
+	nlif_assert(session);
+	nlif_assert(poller);
+
+	int err;
 
 	err = nlif_gate_init(&repo->gate);
 	if (err)
@@ -31,7 +128,7 @@ nlif_srepo_open(struct nlif_srepo * repo, sr_session_ctx_t * session)
 	if (err)
 		goto fini_gate;
 
-	err = nlifd_enable_notif(&repo->notif, &repo->store, &repo->poll);
+	err = nlif_srepo_enable_notif(&repo->notif, &repo->store, poller);
 	if (err)
 		goto fini_store;
 
@@ -44,110 +141,36 @@ nlif_srepo_open(struct nlif_srepo * repo, sr_session_ctx_t * session)
 	return 0;
 
 disable_notif:
-	nlifd_disable_notif(&repo->notif, &repo->store, &repo->poll);
+	nlif_srepo_disable_notif(&repo->notif, &repo->store, poller);
 fini_store:
 	nlif_store_fini(&repo->store);
 fini_gate:
 	nlif_gate_fini(&repo->gate);
-close_poll:
-	upoll_close(&repo->poll);
 
 	return err;
 }
 
 static void
-nlif_srepo_close(struct nlif_srepo * repo)
+nlif_srepo_close(struct nlif_srepo * repo, const struct upoll * poller)
 {
-	nlifd_disable_notif(&repo->notif, &repo->store, &repo->poll);
+	nlif_srepo_disable_notif(&repo->notif, &repo->store, poller);
 	nlif_store_fini(&repo->store);
 	nlif_gate_fini(&repo->gate);
-	upoll_close(&repo->poll);
 }
 
-/******************************************************************************/
 
-struct nlif_srplg_thr {
-	volatile sig_atomic_t stop;
-	struct nlif_srepo     repo;
-	pthread_t             id;
-};
 
-static void *
-nlif_srplg_process_thr(void * data)
-{
-	struct nlif_srplg_thr * thr = data;
-	int                     ret;
 
-	do {
-		ret = nlif_srepo_process(&thr->repo);
-	} while (!ret && !thr->stop);
 
-	if (ret == -ESHUTDOWN)
-		ret = 0;
 
-	SRPLG_LOG_INF(PLUGIN_NAME, "thread exited with %d status", ret);
+FINISH ME!!
 
-	uthr_exit(NULL);
-}
 
-static int
-nlif_srplg_start_thr(struct nlif_srplg_thr * thread, sr_session_ctx_t * session)
-{
-	int            err;
-	pthread_attr_t attr;
-	sigset_t       msk = *usig_full_msk;
 
-	err = nlif_srepo_open(&thread->repo, session);
-	if (err)
-		return err;
 
-	thread->stop = 0;
 
-	/* Make sure that spawned thread blocks all signals. */
-	/*err = uthr_attr_init(&attr);*/
-	err = pthread_attr_init(&attr);
-	if (err) {
-		nlif_assert(err = ENOMEM);
-		abort();
-	}
-	/*err = uthr_attr_set_sigmask(attr, &msk);*/
-	err = pthread_attr_setsigmask(&attr, &msk);
-	if (err) {
-		nlif_assert(err = ENOMEM);
-		abort();
-	}
 
-	err = uthr_create(&thread->id, &attr, nlif_srplg_process_thr, repo);
-	if (err) {
-		SRPLG_LOG_ERR(PLUGIN_NAME,
-		              "cannot spawn thread: %s",
-		              strerror(-err));
-		goto destroy;
-	}
 
-	uthr_attr_destroy(&attr);
-
-	return 0;
-
-destroy:
-	uthr_attr_destroy(&attr);
-close:
-	nlif_srepo_close(&thread->repo);
-
-	return err;
-}
-
-static void
-nlif_srplg_stop_thr(struct nlif_srplg_thr * thread)
-{
-	int err __unused;
-
-	thread->stop = 1;
-#warning TODO: implement eventfd base wake up logic !!!
-
-	err = uthr_join(thread->id, NULL);
-	nlif_assert(!err);
-}
 
 int
 sr_plugin_init_cb(sr_session_ctx_t * session, void ** private)

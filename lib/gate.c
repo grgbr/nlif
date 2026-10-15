@@ -258,7 +258,7 @@ nlif_gate_subscribe(struct nlif_gate *             gate,
 			return -errno;
 		}
 
-		nlif_dbg("netlink multicast group joined.");
+		nlif_debug("netlink multicast group joined.");
 	}
 
 	nlif_obsrv_subscribe(&gate->notif, subscriber);
@@ -286,7 +286,7 @@ nlif_gate_unsubscribe(struct nlif_gate *             gate,
 		           &grp,
 		           sizeof(grp));
 
-		nlif_dbg("netlink multicast group left.");
+		nlif_debug("netlink multicast group left.");
 	}
 }
 
@@ -361,7 +361,7 @@ nlif_gate_init(struct nlif_gate * gate)
 	nlif_obsrv_setup_notifier(&gate->notif);
 #endif /* defined(CONFIG_NLIF_NOTIF) */
 
-	nlif_dbg("gate opened.");
+	nlif_debug("gate opened.");
 
 	return 0;
 }
@@ -376,5 +376,5 @@ nlif_gate_fini(struct nlif_gate * gate)
 
 	ynl_sock_destroy(gate->sock);
 
-	nlif_dbg("gate closed.");
+	nlif_debug("gate closed.");
 }
