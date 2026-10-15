@@ -2219,6 +2219,7 @@ free:
 	return err;
 }
 
+#if 0
 static sr_error_t
 nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
                               const struct nlifd * daemon)
@@ -2265,7 +2266,208 @@ release:
 
 	return ret;
 }
+#else
 
+static char *
+nlifd_iface_create_path_base(void)
+{
+	srplug_assert(path);
+	srplug_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
+	srplug_assert(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN < SREPO_PATH_SIZE);
+
+	char * pth;
+
+	pth = srepo_alloc_path();
+	memcpy(pth,
+	       NLIFD_IETF_IFACE_YANG_LIST_PATH,
+	       NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN + 1);
+
+	return pth;
+}
+
+static ssize_t
+nlifd_iface_fill_path_name(char * path, const struct nlif_iface * interface)
+{
+	nlif_iface_assert(interface);
+	srplug_assert(path);
+
+	int len;
+
+	len = snprintf(&path[NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN],
+	               SREPO_PATH_SIZE - NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN,
+	               "[name='%s']",
+	               nlif_iface_name(interface));
+	srplug_assert(len);
+	if (len < 0)
+		return -errno;
+
+	/* Interface name is no longer than IFNAMSIZ, i.e. 16 characters... */
+	srplug_assert((NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN + len) <
+	              SREPO_PATH_SIZE);
+
+	return (ssize_t)(NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN + len);
+}
+
+static void
+_nlifd_iface_concat_path_leaf(char *       path,
+                              size_t       plen,
+                              const char * string,
+                              size_t       slen)
+{
+	srplug_assert(path);
+	srplug_assert(plen > NLIFD_IETF_IFACE_YANG_LIST_PATH_LEN);
+	srplug_assert(plen < SREPO_PATH_SIZE);
+	srplug_assert(strlen(path) == plen);
+	srplug_assert(string);
+	srplug_assert(slen);
+	srplug_assert(slen < SREPO_PATH_SIZE);
+	srplug_assert(strlen(string) == slen);
+	srplug_assert((plen + slen) < SREPO_PATH_SIZE);
+
+	memcpy(&path[plen], string, slen);
+	path[length + slen] = '\0';
+}
+
+#define nlifd_iface_concat_path(_path, _plen, _str) \
+	_nlifd_iface_concat_path_leaf(_path, _plen, _str, sizeof(_str) - 1)
+
+static sr_error_t
+nlifd_iface_fill_admstate(char *                    path,
+                          size_t                    length,
+                          const struct nlif_iface * interface)
+{
+	srplug_assert(path);
+	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH);
+	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(strlen(path) == length);
+	nlif_iface_assert(interface);
+
+	nlifd_iface_concat_path(path, length, "/admin-status");
+
+	return srepo_dat_set(session,
+	                     path,
+	                     nlif_iface_admstate(iface) ? "up" : "down",
+	                     "ietf-origin:system",
+	                     SR_EDIT_DEFAULT);
+}
+
+static sr_error_t
+nlifd_iface_fill_operstate(char *                    path,
+                           size_t                    length,
+                           const struct nlif_iface * interface)
+{
+	srplug_assert(path);
+	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH);
+	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(strlen(path) == length);
+	nlif_iface_assert(interface);
+
+	const char * st =
+		nlif_link_operstate_str(nlif_iface_operstate(interface));
+
+	nlifd_iface_concat_path(path, length, "/oper-status");
+
+	return srepo_dat_set(session,
+	                     path,
+	                     st,
+	                     "ietf-origin:system",
+	                     SR_EDIT_DEFAULT);
+}
+
+static sr_error_t
+nlifd_iface_fill_index(char *                    path,
+                       size_t                    length,
+                       const struct nlif_iface * interface)
+{
+	srplug_assert(path);
+	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH);
+	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(strlen(path) == length);
+	nlif_iface_assert(interface);
+
+	nlifd_iface_concat_path(path, length, "/if-index");
+
+	return srepo_dat_setf(session,
+	                      path,
+	                      "ietf-origin:system",
+	                      SR_EDIT_DEFAULT,
+	                      "%u",
+	                      nlif_iface_index(interface));
+}
+
+static sr_error_t
+nlifd_iface_fill_hwaddr(char *                    path,
+                        size_t                    length,
+                        const struct nlif_iface * interface)
+{
+	srplug_assert(path);
+	srplug_assert(length > NLIFD_IETF_IFACE_YANG_LIST_PATH);
+	srplug_assert(length < SREPO_PATH_SIZE);
+	srplug_assert(strlen(path) == length);
+	nlif_iface_assert(interface);
+
+	char str[NLIF_LINK_HWADDR_STRSZ];
+
+	nlifd_iface_concat_path(path, length, "/phys-address");
+
+	return srepo_dat_set(session,
+	                     path,
+	                     nlif_link_hwaddr_str(nlif_iface_hwaddr(interface),
+	                                          str);
+	                     "ietf-origin:system",
+	                     SR_EDIT_DEFAULT);
+}
+
+static sr_error_t
+nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
+                              const struct nlifd * daemon)
+{
+	srplug_assert(session);
+	nlifd_assert(daemon);
+
+	char *                         path;
+	const struct nlif_store_hndl * hndl;
+	struct nlif_iface *            iface;
+
+	srepo_switch_dstore(session, SR_DS_OPERATIONAL);
+
+	path = nlifd_iface_create_path_base();
+
+	nlif_store_foreach_iface(&daemon->store, hndl, iface) {
+		ssize_t len;
+
+		len = nlifd_iface_fill_path_name(path, iface);
+		if (len < 0) {
+			ret = SR_ERR_SYS;
+			goto free;
+		}
+
+		ret = nlifd_iface_fill_admstate(path, len, iface);
+		if (ret != SR_ERR_OK)
+			goto free;
+
+		ret = nlifd_iface_fill_operstate(path, len, iface);
+		if (ret != SR_ERR_OK)
+			goto free;
+
+		ret = nlifd_iface_fill_index(path, len, iface);
+		if (ret != SR_ERR_OK)
+			goto free;
+
+		ret = nlifd_iface_fill_hwaddr(path, len, iface);
+		if (ret != SR_ERR_OK)
+			goto free;
+	}
+
+	ret = srplug_apply_changes(session);
+
+free:
+	srplug_discard_changes(session);
+	srplug_free(path);
+
+	return ret;
+}
+#endif
 static int
 nlifd_load(struct nlifd * daemon)
 {
@@ -2313,7 +2515,6 @@ nlifd_load(struct nlifd * daemon)
 	if (ret != SR_ERR_OK)
 		goto release;
 
-	srepo_switch_dstore(sess, SR_DS_OPERATIONAL);
 	ret = nlifd_iface_setup_oper_dstore(sess, daemon);
 	if (ret != SR_ERR_OK)
 		goto release;
