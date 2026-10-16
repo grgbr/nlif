@@ -1,9 +1,8 @@
 #include "repo.h"
 #include "lib/iface.h"
+#include <utils/string.h>
 #include <srutils/srplug/daemon.h>
-#include <srutils/srplug/data.h>
-#include <srutils/srepo/schema.h>
-#include "utils/string.h"
+#include <srutils/srepo/data.h>
 #include <sysrepo/xpath.h>
 #include <sysexits.h>
 
