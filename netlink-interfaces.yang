@@ -36,4 +36,36 @@ module netlink-interfaces {
 	deviation "/if:interfaces/if:interface/if:speed" {
 		deviate not-supported;
 	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:discontinuity-time" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:in-unicast-pkts" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:in-broadcast-pkts" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:in-multicast-pkts" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:in-unknown-protos" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:out-unicast-pkts" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:out-broadcast-pkts" {
+		deviate not-supported;
+	}
+
+	deviation "/if:interfaces/if:interface/if:statistics/if:out-multicast-pkts" {
+		deviate not-supported;
+	}
 }
