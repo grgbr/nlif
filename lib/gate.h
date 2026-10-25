@@ -1,14 +1,19 @@
 #ifndef _NLIF_GATE_H
 #define _NLIF_GATE_H
 
-#include "obsrv.h"
-#include <ynl/rt-link-user.h>
+#include "link.h"
+
+struct nlif_gate;
+
+typedef int nlif_gate_notify_fn(const struct nlif_gate *,
+                                void *,
+                                enum nlif_link_event,
+                                void *);
 
 struct nlif_gate {
-	struct ynl_sock *          sock;
-#if defined(CONFIG_NLIF_NOTIF)
-	struct nlif_obsrv_notifier notif;
-#endif /* defined(CONFIG_NLIF_NOTIF) */
+	struct ynl_sock *      sock;
+	nlif_gate_notify_fn *  notif;
+	void *                 subscr;
 };
 
 #define nlif_gate_assert(_gate) \
@@ -58,6 +63,9 @@ nlif_gate_destroy_link_stats(struct rt_link_getstats_rsp * statistics)
 }
 
 extern int
+nlif_gate_islink_valid(const struct rt_link_getlink_rsp * link);
+
+extern int
 nlif_gate_load_link_byidx(const struct nlif_gate *      gate,
                           unsigned int                  index,
                           struct rt_link_getlink_rsp ** link);
@@ -71,17 +79,8 @@ extern int
 nlif_gate_setlink(const struct nlif_gate *     gate,
                   struct rt_link_setlink_req * request);
 
-typedef int nlif_gate_on_link_loaded_fn(const struct nlif_gate *,
-                                        struct rt_link_getlink_rsp *,
-                                        void *);
-
 extern int
-nlif_gate_load_links(const struct nlif_gate *      gate,
-                     nlif_gate_on_link_loaded_fn * on_loaded,
-                     void *                        data);
-
-extern int
-nlif_gate_islink_valid(const struct rt_link_getlink_rsp * link);
+nlif_gate_load_links(const struct nlif_gate * gate);
 
 static inline
 void
@@ -92,39 +91,54 @@ nlif_gate_destroy_link(struct rt_link_getlink_rsp * link)
 	rt_link_getlink_rsp_free(link);
 }
 
-#if defined(CONFIG_NLIF_NOTIF)
-
-static inline struct nlif_gate *
-nlif_gate_from_notifier(struct nlif_obsrv_notifier * notifier)
-{
-	nlif_assert(notifier);
-
-	struct nlif_gate * gate = containerof(notifier, typeof(*gate), notif);
-
-	nlif_gate_assert(gate);
-	return gate;
-}
-
-static inline bool
-nlif_gate_subscribed(const struct nlif_gate * gate)
+static inline
+void
+nlif_gate_subscribe(struct nlif_gate *    gate,
+                    nlif_gate_notify_fn * notify,
+                    void *                subscriber)
 {
 	nlif_gate_assert(gate);
+	nlif_assert(!gate->notif);
+	nlif_assert(notify);
 
-	return !nlif_obsrv_notifier_empty(&gate->notif);
+	gate->notif = notify;
+	gate->subscr = subscriber;
 }
+
+static inline
+void
+nlif_gate_unsubscribe(struct nlif_gate * gate)
+{
+	nlif_gate_assert(gate);
+
+	gate->notif = NULL;
+	gate->subscr = NULL;
+}
+
+static inline
+int
+nlif_gate_notify(const struct nlif_gate * gate,
+                 enum nlif_link_event     event,
+                 void *                   data)
+{
+	nlif_gate_assert(gate);
+	nlif_assert(event >= 0);
+	nlif_assert(event < NLIF_LINK_EVT_NR);
+
+	int ret = 0;
+
+	if (gate->notif)
+		ret = gate->notif(gate, gate->subscr, event, data);
+
+	return ret;
+}
+
+#if defined(CONFIG_NLIF_NOTIF_CHANGES)
 
 extern int
-nlif_gate_subscribe(struct nlif_gate *             gate,
-                    struct nlif_obsrv_subscriber * subscriber);
+nlif_gate_notify_changes(struct nlif_gate * gate);
 
-extern void
-nlif_gate_unsubscribe(struct nlif_gate *             gate,
-                      struct nlif_obsrv_subscriber * subscriber);
-
-extern void
-nlif_gate_notify(struct nlif_gate * gate);
-
-#endif /* defined(CONFIG_NLIF_NOTIF) */
+#endif /* defined(CONFIG_NLIF_NOTIF_CHANGES) */
 
 extern int
 nlif_gate_init(struct nlif_gate * gate);

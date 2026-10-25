@@ -67,13 +67,8 @@ _nlif_iface_load_byidx(struct nlif_iface *      interface,
 	int                          err;
 
 	err = nlif_gate_load_link_byidx(gate, index, &lnk);
-	if (err) {
-		interface->state = NLIF_INVALID_STAT;
-		nlif_warn("[%u]: cannot load interface by index: %s.",
-		          index,
-		          strerror(-err));
+	if (err)
 		return err;
-	}
 
 	nlif_iface_fill(interface, lnk);
 
@@ -93,9 +88,7 @@ nlif_iface_sync(struct nlif_iface * interface)
 		return 0;
 
 	case NLIF_INVALID_STAT:
-		return _nlif_iface_load_byidx(interface,
-		                              interface->idx,
-		                              interface->gate);
+		return nlif_iface_reload(interface);
 
 	default:
 		nlif_assert(0);
@@ -639,7 +632,6 @@ nlif_iface_reload_bylink(struct nlif_iface *                interface,
 	nlif_assert(interface->idx == (unsigned int)link->_hdr.ifi_index);
 
 	nlif_iface_fini(interface);
-
 	nlif_iface_fill(interface, link);
 }
 
@@ -648,11 +640,31 @@ nlif_iface_reload(struct nlif_iface * interface)
 {
 	nlif_iface_assert(interface);
 
+	int err;
+
 	nlif_iface_fini(interface);
 
-	return _nlif_iface_load_byidx(interface,
-	                              interface->idx,
-	                              interface->gate);
+	err = _nlif_iface_load_byidx(interface,
+	                             interface->idx,
+	                             interface->gate);
+	if (err)
+		goto err;
+
+	err = nlif_gate_notify(interface->gate,
+	                       NLIF_LINK_RELOAD_EVT,
+	                       interface);
+	if (err)
+		goto err;
+
+	return 0;
+
+err:
+	interface->state = NLIF_INVALID_STAT;
+	nlif_info("[%u]: cannot reload interface: %s.",
+	          interface->idx,
+	          strerror(-err));
+
+	return err;
 }
 
 int
@@ -661,18 +673,23 @@ nlif_iface_load_byidx(struct nlif_iface *      interface,
                       const struct nlif_gate * gate)
 {
 	nlif_assert(interface);
+	nlif_assert(interface->state == NLIF_STAT_NR);
 	nlif_assert(!nlif_iface_validate_index(index));
 	nlif_gate_assert(gate);
 
-	int ret;
+	int err;
 
-	ret = _nlif_iface_load_byidx(interface, index, gate);
-	if (!ret) {
+	err = _nlif_iface_load_byidx(interface, index, gate);
+	if (!err) {
 		interface->gate = gate;
 		return 0;
 	}
 
-	return ret;
+	nlif_info("[%u]: cannot load interface by index: %s.",
+	          index,
+	          strerror(-err));
+
+	return err;
 }
 
 int
@@ -681,6 +698,7 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
                        const struct nlif_gate * gate)
 {
 	nlif_assert(interface);
+	nlif_assert(interface->state == NLIF_STAT_NR);
 	nlif_assert(nlif_iface_validate_name(name) > 0);
 	nlif_gate_assert(gate);
 
@@ -689,8 +707,7 @@ nlif_iface_load_byname(struct nlif_iface *      interface,
 
 	err = nlif_gate_load_link_byname(gate, name, &lnk);
 	if (err) {
-		interface->state = NLIF_INVALID_STAT;
-		nlif_warn("%s: cannot load interface by name: %s.",
+		nlif_info("%s: cannot load interface by name: %s.",
 		          name,
 		          strerror(-err));
 		return err;
@@ -719,7 +736,7 @@ nlif_iface_load_stats(const struct nlif_iface *  interface,
 	                                interface->idx,
 	                                &stats);
 	if (err) {
-		nlif_warn("[%u]: cannot load interface statistics: %s.",
+		nlif_info("[%u]: cannot load interface statistics: %s.",
 		          index,
 		          strerror(-err));
 		return err;
@@ -795,26 +812,34 @@ nlif_iface_apply(struct nlif_iface * interface)
 
 		nlif_gate_destroy_setlink_req(req);
 
-		if (!ret) {
-			interface->state = NLIF_CLEAN_STAT;
-			stroll_bmap_clear_all(&interface->dirty_fields);
-			stroll_bmap_clear_all(&interface->dirty_flags);
+		if (ret)
+			goto err;
 
-			nlif_debug("'%s[%u]: interface settings applied.",
-			           interface->name,
-			           interface->idx);
-			ret = 1;
-		}
-		else {
-			interface->state = NLIF_INVALID_STAT;
+		ret = nlif_gate_notify(interface->gate,
+		                       NLIF_LINK_MODIFY_EVT,
+		                       interface);
+		if (ret)
+			goto err;
 
-			nlif_warn("%s[%u]: "
-			          "cannot apply interface settings: %s",
-			          interface->name,
-			          interface->idx,
-			          strerror(-ret));
-		}
+		interface->state = NLIF_CLEAN_STAT;
+		stroll_bmap_clear_all(&interface->dirty_fields);
+		stroll_bmap_clear_all(&interface->dirty_flags);
+
+		nlif_debug("'%s[%u]: interface settings applied.",
+		           interface->name,
+		           interface->idx);
+		ret = 1;
 	}
+
+	return ret;
+
+err:
+	interface->state = NLIF_INVALID_STAT;
+	nlif_info("%s[%u]: "
+	          "cannot apply interface settings: %s",
+	          interface->name,
+	          interface->idx,
+	          strerror(-ret));
 
 	return ret;
 }

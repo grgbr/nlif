@@ -60,22 +60,23 @@ main(int argc, char * const argv[])
 			if (ret) {
 				nlif_err("'%s': cannot load interface: %s.",
 				         arg,
-				         strerror(ret));
+				         strerror(-ret));
 				goto fini_gate;
 			}
 
 			nlif_iface_print(iface, stdout);
 
 			nlif_iface_destroy(iface);
-
-			goto fini_gate;
 		}
 	}
+#if defined(CONFIG_NLIF_STORE)
 	else if (argc == 1) {
-		struct nlif_store              store = NLIF_STORE_INIT(store);
+		struct nlif_store              store;
 		const struct nlif_store_hndl * hndl;
 
-		ret = nlif_store_load(&store, &gate);
+		nlif_store_init(&store, &gate);
+
+		ret = nlif_store_load(&store);
 		if (ret)
 			goto fini_gate;
 
@@ -84,15 +85,18 @@ main(int argc, char * const argv[])
 
 		nlif_store_fini(&store);
 	}
+#endif /* defined(CONFIG_NLIF_STORE) */
 	else {
 		nlif_err("invalid number of arguments.");
-		ret = EINVAL;
+		goto fini_gate;
 	}
+
+	ret = 0;
 
 fini_gate:
 	nlif_gate_fini(&gate);
 fini_log:
 	elog_fini_stdio(&log);
 
-	return ret ? EXIT_SUCCESS : EXIT_FAILURE;
+	return (!ret) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

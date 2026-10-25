@@ -3,6 +3,10 @@
 
 #include "common.h"
 #include "gate.h"
+#if defined(CONFIG_NLIF_NOTIF_CHANGES)
+#include "obsrv.h"
+#endif /* defined(CONFIG_NLIF_NOTIF_CHANGES) */
+#include <stroll/dlist.h>
 #include <stroll/hlist.h>
 
 struct nlif_gate;
@@ -17,37 +21,11 @@ struct nlif_store {
 	struct stroll_hlist          aliash[1U << NLIF_STORE_NAMEH_BITS];
 	struct stroll_dlist_node     ifaces;
 	unsigned int                 count;
-#if defined(CONFIG_NLIF_NOTIF)
-	struct nlif_obsrv_subscriber sub;
+#if defined(CONFIG_NLIF_NOTIF_CHANGES)
 	struct nlif_obsrv_notifier   notif;
-#endif /* defined(CONFIG_NLIF_NOTIF) */
+#endif /* defined(CONFIG_NLIF_NOTIF_CHANGES) */
+	struct nlif_gate *           gate;
 };
-
-#define _NLIF_STORE_INIT(_store) \
-		.nameh    = STROLL_HLIST_INIT_BUCKETS((_store).nameh), \
-		.indxh    = STROLL_HLIST_INIT_BUCKETS((_store).indxh), \
-		.aliash   = STROLL_HLIST_INIT_BUCKETS((_store).aliash), \
-		.ifaces   = STROLL_DLIST_INIT((_store).ifaces), \
-		.count    = 0
-
-#if defined(CONFIG_NLIF_NOTIF)
-
-#define NLIF_STORE_INIT(_store) \
-	{ \
-		_NLIF_STORE_INIT(_store), \
-		.sub   = NLIF_OBSRV_SETUP_SUBSCRIBER((_store).sub, \
-		                                     nlif_store_on_event), \
-		.notif = NLIF_OBSRV_SETUP_NOTIFIER((_store).notif) \
-	}
-
-#else  /* !defined(CONFIG_NLIF_NOTIF) */
-
-#define NLIF_STORE_INIT(_store) \
-	{ \
-		_NLIF_STORE_INIT(_store) \
-	}
-
-#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 #define nlif_store_assert(_store) \
 	nlif_assert(_store); \
@@ -58,7 +36,8 @@ struct nlif_store {
 	            !stroll_hlist_buckets_empty((_store)->indxh, \
 	                                        NLIF_STORE_INDXH_BITS)); \
 	nlif_assert(!(_store)->count || \
-	            !stroll_dlist_empty(&(_store)->ifaces))
+	            !stroll_dlist_empty(&(_store)->ifaces)); \
+	nlif_gate_assert((_store)->gate)
 
 struct nlif_store_hndl {
 	struct stroll_hlist_node    nameh;
@@ -114,30 +93,36 @@ extern void
 nlif_store_clear(struct nlif_store * store);
 
 extern int
-nlif_store_load(struct nlif_store * store, const struct nlif_gate * gate);
+nlif_store_load(struct nlif_store * store);
 
 static inline
 int
-nlif_store_reload(struct nlif_store * store, const struct nlif_gate * gate)
+nlif_store_reload(struct nlif_store * store)
 {
 	nlif_store_clear(store);
 
-	return nlif_store_load(store, gate);
+	return nlif_store_load(store);
 }
 
-#if defined(CONFIG_NLIF_NOTIF)
+#if defined(CONFIG_NLIF_NOTIF_CHANGES)
 
-extern void
-nlif_store_on_event(struct nlif_obsrv_subscriber * subscriber,
-                    unsigned int                   event,
-                    void *                         data,
-                    struct nlif_obsrv_notifier *   notifier);
+static inline
+int
+nlif_store_enable_change_notif(struct nlif_store * store)
+{
+	nlif_store_assert(store);
 
-extern int
-nlif_store_enable_notif(struct nlif_store * store, struct nlif_gate * gate);
+	return nlif_gate_enable_change_notif(store->gate);
+}
 
-extern void
-nlif_store_disable_notif(struct nlif_store * store, struct nlif_gate * gate);
+static inline
+void
+nlif_store_disable_change_notif(struct nlif_store * store)
+{
+	nlif_store_assert(store);
+
+	nlif_gate_unsubscribe(store->gate);
+}
 
 enum nlif_store_event {
 	NLIF_STORE_IFACE_CHANGE_EVT = 0,
@@ -145,17 +130,17 @@ enum nlif_store_event {
 };
 
 extern void
-nlif_store_subscribe(struct nlif_store *            store,
-                     struct nlif_obsrv_subscriber * subscriber);
+nlif_store_subscribe_changes(struct nlif_store *            store,
+                             struct nlif_obsrv_subscriber * subscriber);
 
 extern void
-nlif_store_unsubscribe(struct nlif_store *            store,
-                       struct nlif_obsrv_subscriber * subscriber);
+nlif_store_unsubscribe_changes(struct nlif_store *            store,
+                               struct nlif_obsrv_subscriber * subscriber);
 
-#endif /* defined(CONFIG_NLIF_NOTIF) */
+#endif /* defined(CONFIG_NLIF_NOTIF_CHANGES) */
 
 extern void
-nlif_store_init(struct nlif_store * store);
+nlif_store_init(struct nlif_store * store, struct nlif_gate * gate);
 
 extern void
 nlif_store_fini(struct nlif_store * store);

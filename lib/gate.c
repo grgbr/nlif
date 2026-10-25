@@ -70,7 +70,7 @@ nlif_gate_getlink(const struct nlif_gate *      gate,
 	/* Acquire interface data. */
 	lnk = rt_link_getlink(gate->sock, request);
 	if (!lnk) {
-		nlif_notice("cannot fetch link: %s.", gate->sock->err.msg);
+		nlif_debug("cannot fetch link: %s.", gate->sock->err.msg);
 		return nlif_ynl_err(&gate->sock->err);
 	}
 
@@ -80,9 +80,9 @@ nlif_gate_getlink(const struct nlif_gate *      gate,
 		return 0;
 	}
 
-	nlif_notice("%s[%d]: cannot load link: inconsistent attributes.",
-	            lnk->ifname,
-	            lnk->_hdr.ifi_index);
+	nlif_debug("%s[%d]: cannot load link: inconsistent attributes.",
+	           lnk->ifname,
+	           lnk->_hdr.ifi_index);
 
 	rt_link_getlink_rsp_free(lnk);
 
@@ -178,8 +178,8 @@ nlif_gate_load_link_stats(const struct nlif_gate *       gate,
 	/* Acquire link statistics. */
 	rsp = rt_link_getstats(gate->sock, req);
 	if (!rsp) {
-		nlif_notice("cannot fetch link statistics: %s.",
-		            gate->sock->err.msg);
+		nlif_debug("cannot fetch link statistics: %s.",
+		           gate->sock->err.msg);
 		ret = nlif_ynl_err(&gate->sock->err);
 		goto free;
 	}
@@ -210,20 +210,18 @@ nlif_gate_setlink(const struct nlif_gate *     gate,
 	if (!err)
 		return 0;
 
-	nlif_notice("[%d]: cannot set link: %s.",
-	            request->_hdr.ifi_index,
-	            gate->sock->err.msg);
+	nlif_debug("[%d]: cannot set link: %s.",
+	           request->_hdr.ifi_index,
+	           gate->sock->err.msg);
 
 	return nlif_ynl_err(&gate->sock->err);
 }
 
 int
-nlif_gate_load_links(const struct nlif_gate *      gate,
-                     nlif_gate_on_link_loaded_fn * on_loaded,
-                     void *                        data)
+nlif_gate_load_links(const struct nlif_gate * gate)
 {
 	nlif_gate_assert(gate);
-	nlif_assert(on_loaded);
+	nlif_assert(gate->notif);
 
 	struct rt_link_getlink_req_dump * req;
 	struct rt_link_getlink_list *     lst;
@@ -242,13 +240,13 @@ nlif_gate_load_links(const struct nlif_gate *      gate,
 
 	lst = rt_link_getlink_dump(gate->sock, req);
 	if (!lst) {
-		nlif_notice("cannot dump links: %s.", gate->sock->err.msg);
+		nlif_debug("cannot dump links: %s.", gate->sock->err.msg);
 		ret = nlif_ynl_err(&gate->sock->err);
 		goto free_req;
 	}
 
 	if (ynl_dump_empty(lst)) {
-		nlif_notice("no available link.");
+		nlif_debug("no available link.");
 		ret = -ENODEV;
 		goto free_lst;
 	}
@@ -256,14 +254,14 @@ nlif_gate_load_links(const struct nlif_gate *      gate,
 	ynl_dump_foreach(lst, lnk) {
 		ret = nlif_gate_islink_valid(lnk);
 		if (ret) {
-			nlif_notice("%s[%d]: cannot load link: "
-			            "inconsistent attributes.",
-			            lnk->ifname,
-			            lnk->_hdr.ifi_index);
+			nlif_debug("%s[%d]: cannot load link: "
+			           "inconsistent attributes.",
+			           lnk->ifname,
+			           lnk->_hdr.ifi_index);
 			continue;
 		}
 
-		ret = on_loaded(gate, lnk, data);
+		ret = nlif_gate_notify(gate, NLIF_LINK_NEW_EVT, lnk);
 		if (ret)
 			goto free_lst;
 	}
@@ -279,69 +277,62 @@ free_req:
 	return ret;
 }
 
-#if defined(CONFIG_NLIF_NOTIF)
+#if defined(CONFIG_NLIF_NOTIF_CHANGES)
 
 int
-nlif_gate_subscribe(struct nlif_gate *             gate,
-                    struct nlif_obsrv_subscriber * subscriber)
+nlif_gate_enable_change_notif(const struct nlif_gate * gate)
 {
 	nlif_gate_assert(gate);
-	nlif_assert(subscriber);
+	nlif_assert(gate->notif);
 
-	if (nlif_obsrv_notifier_empty(&gate->notif)) {
-		int          fd = ynl_socket_get_fd(gate->sock);
-		unsigned int grp = RTNLGRP_LINK;
+	int          fd = ynl_socket_get_fd(gate->sock);
+	unsigned int grp = RTNLGRP_LINK;
 
-		nlif_assert(fd > 0);
-		if (setsockopt(fd,
-		               SOL_NETLINK,
-		               NETLINK_ADD_MEMBERSHIP,
-		               &grp,
-		               sizeof(grp))) {
-			nlif_notice("cannot join netlink multicast group: %s.",
-			            strerror(errno));
-			return -errno;
-		}
-
-		nlif_debug("netlink multicast group joined.");
+	nlif_assert(fd > 0);
+	if (setsockopt(fd,
+	               SOL_NETLINK,
+	               NETLINK_ADD_MEMBERSHIP,
+	               &grp,
+	               sizeof(grp))) {
+		nlif_debug("cannot join netlink multicast group: %s.",
+		           strerror(errno));
+		return -errno;
 	}
 
-	nlif_obsrv_subscribe(&gate->notif, subscriber);
+	nlif_debug("netlink multicast group joined.");
 
 	return 0;
 }
 
 void
-nlif_gate_unsubscribe(struct nlif_gate *             gate,
-                      struct nlif_obsrv_subscriber * subscriber)
+nlif_gate_disable_change_notif(const struct nlif_gate * gate)
 {
 	nlif_gate_assert(gate);
-	nlif_assert(subscriber);
+	nlif_assert(gate->notif);
 
-	nlif_obsrv_unsubscribe(&gate->notif, subscriber);
+	int          fd = ynl_socket_get_fd(gate->sock);
+	unsigned int grp = RTNLGRP_LINK;
+	int          err;
 
-	if (nlif_obsrv_notifier_empty(&gate->notif)) {
-		int          fd = ynl_socket_get_fd(gate->sock);
-		unsigned int grp = RTNLGRP_LINK;
+	nlif_assert(fd > 0);
+	err = setsockopt(fd,
+	                 SOL_NETLINK,
+	                 NETLINK_DROP_MEMBERSHIP,
+	                 &grp,
+	                 sizeof(grp));
+	nlif_assert(!err);
 
-		nlif_assert(fd > 0);
-		setsockopt(fd,
-		           SOL_NETLINK,
-		           NETLINK_DROP_MEMBERSHIP,
-		           &grp,
-		           sizeof(grp));
-
-		nlif_debug("netlink multicast group left.");
-	}
+	nlif_debug("netlink multicast group left.");
 }
 
-void
-nlif_gate_notify(struct nlif_gate * gate)
+int
+nlif_gate_notify_changes(struct nlif_gate * gate)
 {
 	nlif_gate_assert(gate);
-	nlif_assert(!nlif_obsrv_notifier_empty(&gate->notif));
+	nlif_assert(gate->notif);
 
 	struct ynl_ntf_base_type * ntf;
+	int                        ret = 0;
 
 	/*
 	 * Retrieve notification messages from underlying socket, parse
@@ -355,32 +346,36 @@ nlif_gate_notify(struct nlif_gate * gate)
 	while (ntf) {
 		if (ntf->cmd == RTM_NEWLINK) {
 			struct rt_link_getlink_rsp * lnk;
-			int                          err;
 
 			lnk = &((struct rt_link_getlink_ntf *)ntf)->obj;
-			err = nlif_gate_islink_valid(lnk);
-			if (!err) {
-				/* Notify subscribers. */
-				nlif_obsrv_notify(&gate->notif,
-				                  NLIF_LINK_NEW_EVT,
-				                  lnk);
+			ret = nlif_gate_islink_valid(lnk);
+			if (ret) {
+				nlif_debug("%s[%d]: "
+				           "invalid link notification: "
+				           "inconsistent attributes.",
+				           lnk->ifname,
+				           lnk->_hdr.ifi_index);
+				ret = 0;
 			}
-			else {
-				nlif_notice("%s[%d]: "
-				            "invalid link notification: "
-				            "inconsistent attributes.",
-				            lnk->ifname,
-				            lnk->_hdr.ifi_index);
-			}
+			else
+				/* Notify subscriber. */
+				ret = nlif_gate_notify(gate,
+				                       NLIF_LINK_CHANGE_EVT,
+				                       lnk);
 		}
 
 		ynl_ntf_free(ntf);
 
+		if (ret)
+			break;
+
 		ntf = ynl_ntf_dequeue(gate->sock);
 	}
+
+	return ret;
 }
 
-#endif /* defined(CONFIG_NLIF_NOTIF) */
+#endif /* defined(CONFIG_NLIF_NOTIF_CHANGES) */
 
 int
 nlif_gate_init(struct nlif_gate * gate)
@@ -393,7 +388,7 @@ nlif_gate_init(struct nlif_gate * gate)
 
 	gate->sock = ynl_sock_create(&ynl_rt_link_family, &err);
 	if (!gate->sock) {
-		nlif_err("cannot open gate: %s.", err.msg);
+		nlif_debug("cannot open gate: %s.", err.msg);
 		return nlif_ynl_err(&err);
 	}
 
@@ -404,9 +399,7 @@ nlif_gate_init(struct nlif_gate * gate)
 	ret = fcntl(ret, F_SETFD, flags | FD_CLOEXEC);
 	nlif_assert(!ret);
 
-#if defined(CONFIG_NLIF_NOTIF)
-	nlif_obsrv_setup_notifier(&gate->notif);
-#endif /* defined(CONFIG_NLIF_NOTIF) */
+	gate->notif = NULL;
 
 	nlif_debug("gate opened.");
 
@@ -417,9 +410,6 @@ void
 nlif_gate_fini(struct nlif_gate * gate)
 {
 	nlif_gate_assert(gate);
-#if defined(CONFIG_NLIF_NOTIF)
-	nlif_assert(nlif_obsrv_notifier_empty(&gate->notif));
-#endif /* defined(CONFIG_NLIF_NOTIF) */
 
 	ynl_sock_destroy(gate->sock);
 

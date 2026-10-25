@@ -6,8 +6,11 @@
 #include <netinet/ether.h>
 
 enum nlif_link_event {
-	NLIF_LINK_NEW_EVT = 0,
-	NLIF_LINK_EVT_NR
+	NLIF_LINK_CHANGE_EVT = 0, /* link has changed externally. */
+	NLIF_LINK_MODIFY_EVT = 1, /* link has been modified internally. */
+	NLIF_LINK_NEW_EVT    = 2, /* a new link has been loaded. */
+	NLIF_LINK_RELOAD_EVT = 3, /* link has been reloaded internally. */
+	NLIF_LINK_EVT_NR          /* end of link event marker. */
 };
 
 #define nlif_link_assert(_lnk) \

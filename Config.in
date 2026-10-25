@@ -36,22 +36,23 @@ config NLIF_PRINT
 	  Build nlif with support for displaying objects content on
 	  console.
 
+config NLIF_NOTIF_CHANGES
+	bool "Changes Notification"
+	default n
+	help
+	  Build nlif with support for asynchronous object changes notifications.
+
 config NLIF_STORE
 	bool "Object store"
 	default n
 	help
 	  Build nlif with support for an object store that may serve as a
-	  caching mechanism when coupled with asynchronous object notifications.
-
-config NLIF_NOTIF
-	bool "Notification"
-	default n
-	help
-	  Build nlif with support for asynchronous object notifications.
+	  caching mechanism when coupled with asynchronous object changes
+	  notifications.
 
 config NLIF_DAEMON
 	bool "nlifd daemon"
-	select NLIF_NOTIF
+	select NLIF_NOTIF_CHANGES
 	select NLIF_STORE
 	select NLIF_PRINT
 	default y
@@ -67,7 +68,6 @@ config NLIF_SAMPLE
 config NLIF_SAMPLE_SHOW_IFACE
 	bool "nlif-show-iface sample"
 	depends on NLIF_SAMPLE
-	select NLIF_STORE
 	select NLIF_LOG
 	default n
 	help
@@ -88,7 +88,7 @@ config NLIF_SAMPLE_MON
 	bool "nlif-mon sample"
 	depends on NLIF_SAMPLE
 	select NLIF_STORE
-	select NLIF_NOTIF
+	select NLIF_NOTIF_CHANGES
 	select NLIF_LOG
 	default n
 	help
