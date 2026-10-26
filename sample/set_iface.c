@@ -1,4 +1,3 @@
-#include "store.h"
 #include "iface.h"
 
 int
@@ -26,11 +25,11 @@ main(int argc, char * const argv[])
 
 		if (arg[0] != '\0') {
 			unsigned long     indx;
-			char *            err;
+			char *            errstr;
 			struct ether_addr addr;
 
-			indx = strtoul(argv[1], &err, 0);
-			if (*err == '\0') {
+			indx = strtoul(argv[1], &errstr, 0);
+			if (*errstr == '\0') {
 				if ((indx > (unsigned long)UINT_MAX) ||
 				    nlif_iface_validate_index((unsigned int)
 				                              indx)) {
@@ -89,10 +88,10 @@ main(int argc, char * const argv[])
 
 			ret = nlif_iface_set_hwaddr(
 				iface,
-				ether_aton_r("1a:41:41:59:a7:e0", &addr));
+				ether_aton_r("1a:42:41:59:a7:e0", &addr));
 			if (ret) {
 				nlif_err("'%s': "
-				         "cannot configure interface kddress: "
+				         "cannot configure interface address: "
 				         "%s.",
 				         arg,
 				         strerror(-ret));
@@ -100,20 +99,17 @@ main(int argc, char * const argv[])
 			}
 
 			ret = nlif_iface_apply(iface);
-			if (ret) {
+			if (ret < 0)
 				nlif_err("'%s': "
 				         "cannot apply interface configuration: "
 				         "%s.",
 				         arg,
 				         strerror(-ret));
-				goto destroy;
-			}
 
 			nlif_iface_print(iface, stdout);
 
 destroy:
 			nlif_iface_destroy(iface);
-
 		}
 		else {
 			nlif_err("invalid empty argument.");

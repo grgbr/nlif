@@ -69,6 +69,7 @@ config NLIF_SAMPLE_SHOW_IFACE
 	bool "nlif-show-iface sample"
 	depends on NLIF_SAMPLE
 	select NLIF_LOG
+	select NLIF_PRINT
 	default n
 	help
 	  Build the nlif-show-iface sample code that demonstrates how to
@@ -77,8 +78,8 @@ config NLIF_SAMPLE_SHOW_IFACE
 config NLIF_SAMPLE_SET_IFACE
 	bool "nlif-set-iface sample"
 	depends on NLIF_SAMPLE
-	select NLIF_STORE
 	select NLIF_LOG
+	select NLIF_PRINT
 	default n
 	help
 	  Build the nlif-set-iface sample code that demonstrates how to retrieve
@@ -90,6 +91,7 @@ config NLIF_SAMPLE_MON
 	select NLIF_STORE
 	select NLIF_NOTIF_CHANGES
 	select NLIF_LOG
+	select NLIF_PRINT
 	default n
 	help
 	  Build the nlif-mon sample code that demonstrates how to retrieve and

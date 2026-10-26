@@ -1123,7 +1123,7 @@ nlifd_dispatch_notif(struct upoll_worker * worker,
 	struct nlifd * dmn = containerof(worker, typeof(*dmn), work);
 
 	nlifd_assert_daemon(dmn);
-	nlif_gate_notify(&dmn->gate);
+	nlif_gate_notify_changes(&dmn->gate);
 
 	return 0;
 }
@@ -1137,9 +1137,9 @@ nlifd_enable_notif(struct nlifd * daemon)
 	const char * msg __unused;
 
 	nlif_obsrv_setup_subscriber(&daemon->oper_sub, nlifd_push_oper);
-	nlif_store_subscribe(&daemon->store, &daemon->oper_sub);
+	nlif_store_subscribe_changes(&daemon->store, &daemon->oper_sub);
 
-	ret = nlif_store_enable_notif(&daemon->store, &daemon->gate);
+	ret = nlif_store_enable_change_notif(&daemon->store);
 	if (ret) {
 		msg = "cannot enable store notification";
 		goto err;
@@ -1160,9 +1160,9 @@ nlifd_enable_notif(struct nlifd * daemon)
 	return 0;
 
 disable:
-	nlif_store_disable_notif(&daemon->store, &daemon->gate);
+	nlif_store_disable_change_notif(&daemon->store);
 err:
-	nlif_store_unsubscribe(&daemon->store, &daemon->oper_sub);
+	nlif_store_unsubscribe_changes(&daemon->store, &daemon->oper_sub);
 	nlifd_err("cannot enable notification worker: %s: %s",
 	           msg,
 	           strerror(-ret));
@@ -1177,8 +1177,8 @@ nlifd_disable_notif(struct nlifd * daemon)
 
 	upoll_unregister(srplug_daemon_poller(&daemon->super),
 	                 nlif_gate_fd(&daemon->gate));
-	nlif_store_disable_notif(&daemon->store, &daemon->gate);
-	nlif_store_unsubscribe(&daemon->store, &daemon->oper_sub);
+	nlif_store_disable_change_notif(&daemon->store);
+	nlif_store_unsubscribe_changes(&daemon->store, &daemon->oper_sub);
 
 	nlifd_debug("notification worker disabled");
 }
@@ -1415,13 +1415,13 @@ nlifd_open(struct nlifd * daemon)
 	if (err)
 		goto close_dmn;
 
-	nlif_store_init(&daemon->store);
+	nlif_store_init(&daemon->store, &daemon->gate);
 
 	err = nlifd_enable_notif(daemon);
 	if (err)
 		goto fini_store;
 
-	err = nlif_store_load(&daemon->store, &daemon->gate);
+	err = nlif_store_load(&daemon->store);
 	if (err)
 		goto disable_notif;
 

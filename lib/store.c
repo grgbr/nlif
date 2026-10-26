@@ -418,6 +418,11 @@ nlif_store_on_iface_change(struct nlif_store *                store,
 	 * interface entirely but an update of operational state
 	 * informations is enought since we don't want to coexist with
 	 * daemons that configure interfaces in parallel...
+	 *
+	 * In addition, we would need to make sure store's internal indices are
+	 * consistent with the link's ifalias and ifname properties, i.e.,
+	 * thanks to calls to nlif_store_rehash_name() /
+	 * nlif_store_rehash_alias().
 	 */
 	if (nlif_iface_refresh_state(iface, link))
 		nlif_obsrv_notify(&store->notif,

@@ -37,33 +37,35 @@ main(int argc, const char * const argv[] __unused)
 		goto fini_log;
 
 	if (argc == 1) {
-		struct nlif_store              store = NLIF_STORE_INIT(store);
+		struct nlif_store              store;
 		const struct nlif_store_hndl * hndl;
 		struct nlif_obsrv_subscriber   show_sub =
 			NLIF_OBSRV_SETUP_SUBSCRIBER(show_sub, on_iface_change);
 
-		ret = nlif_store_enable_notif(&store, &gate);
+		nlif_store_init(&store, &gate);
+
+		ret = nlif_store_enable_change_notif(&store);
 		if (ret)
 			goto fini_store;
 
-		ret = nlif_store_load(&store, &gate);
+		ret = nlif_store_load(&store);
 		if (ret)
 			goto disable;
 
 		nlif_store_foreach_iface(&store, hndl, iface)
 			nlif_iface_print(iface, stdout);
 
-		nlif_store_subscribe(&store, &show_sub);
+		nlif_store_subscribe_changes(&store, &show_sub);
 
 		while (true) {
-			nlif_gate_notify(&gate);
+			nlif_gate_notify_changes(&gate);
 			usleep(500000);
 		}
 
-		nlif_store_unsubscribe(&store, &show_sub);
+		nlif_store_unsubscribe_changes(&store, &show_sub);
 
 disable:
-		nlif_store_disable_notif(&store, &gate);
+		nlif_store_disable_change_notif(&store);
 fini_store:
 		nlif_store_fini(&store);
 	}

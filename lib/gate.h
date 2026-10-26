@@ -136,6 +136,12 @@ nlif_gate_notify(const struct nlif_gate * gate,
 #if defined(CONFIG_NLIF_NOTIF_CHANGES)
 
 extern int
+nlif_gate_enable_change_notif(const struct nlif_gate * gate);
+
+extern void
+nlif_gate_disable_change_notif(const struct nlif_gate * gate);
+
+extern int
 nlif_gate_notify_changes(struct nlif_gate * gate);
 
 #endif /* defined(CONFIG_NLIF_NOTIF_CHANGES) */
