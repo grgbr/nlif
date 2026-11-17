@@ -20,7 +20,9 @@ nlif_repo_store(const struct nlif_repo * repo)
 {
 	nlif_repo_assert(repo);
 
+STROLL_IGNORE_WARN("-Wcast-qual")
 	return (struct nlif_store *)&repo->store;
+STROLL_RESTORE_WARN
 }
 
 static inline struct nlif_gate *
@@ -28,7 +30,9 @@ nlif_repo_gate(const struct nlif_repo * repo)
 {
 	nlif_repo_assert(repo);
 
+STROLL_IGNORE_WARN("-Wcast-qual")
 	return (struct nlif_gate *)&repo->gate;
+STROLL_RESTORE_WARN
 }
 
 extern int

@@ -1072,11 +1072,11 @@ nlifd_push_oper(struct nlif_obsrv_subscriber * subscriber,
 	if (len < 0) {
 		nlifd_warn("[%u]: cannot refresh interface status: %s",
 		           nlif_iface_index(iface),
-		           strerror(-len));
+		           strerror(-(int)len));
 		return;
 	}
 
-	ret = nlifd_iface_refresh_oper(sess, path, len, iface);
+	ret = nlifd_iface_refresh_oper(sess, path, (size_t)len, iface);
 	if (ret != SR_ERR_OK)
 		goto err;
 
@@ -1283,21 +1283,30 @@ nlifd_iface_setup_oper_dstore(sr_session_ctx_t *   session,
 
 		len = nlifd_iface_fill_path_name(path, nlif_iface_name(iface));
 		if (len < 0) {
-			ret = nlifd_iface_error(len);
+			ret = nlifd_iface_error((int)len);
 			goto err;
 		}
 
-		ret = nlifd_iface_refresh_oper(session, path, len, iface);
+		ret = nlifd_iface_refresh_oper(session,
+		                               path,
+		                               (size_t)len,
+		                               iface);
 		if (ret != SR_ERR_OK)
 			goto err;
 
 		if (nlifd_if_mib_feat.on) {
-			ret = nlifd_iface_fill_index(session, path, len, iface);
+			ret = nlifd_iface_fill_index(session,
+			                             path,
+			                             (size_t)len,
+			                             iface);
 			if (ret != SR_ERR_OK)
 				goto err;
 		}
 
-		ret = nlifd_iface_fill_hwaddr(session, path, len, iface);
+		ret = nlifd_iface_fill_hwaddr(session,
+		                              path,
+		                              (size_t)len,
+		                              iface);
 		if (ret != SR_ERR_OK)
 			goto err;
 	}
